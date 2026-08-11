@@ -100,16 +100,10 @@ executes `genauth-agent version` and `--help`.
 global installation of the packed npm tarball. The CLI uses the native
 operating-system credential store through its Node.js Keychain dependency.
 
-The GitHub verify workflow runs Node 22 and 24 across macOS arm64/x64, Linux
-arm64/x64, and Windows x64. The release workflow publishes one npm package with
-provenance and attaches that tarball plus checksums to the GitHub release only
-after the platform matrix, installed journey, and Skill contract jobs all pass.
-
 ## GitLab CI to GitHub
 
 The repository's [`.gitlab-ci.yml`](.gitlab-ci.yml) synchronizes commits on the
-GitLab default branch and Git tags to the configured GitHub repository. GitHub
-then runs its own verification or release workflow for the mirrored ref.
+GitLab default branch and Git tags to the configured GitHub repository.
 
 The sync job never force-pushes and never places the GitHub token in a remote
 URL. Configure these GitLab CI/CD variables:
