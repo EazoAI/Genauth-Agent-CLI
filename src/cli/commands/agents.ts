@@ -247,6 +247,9 @@ async function createAgent(app: AppContext, options: OptionValues, command: Comm
   requiredText(displayName, "display-name");
   requiredText(applicationId, "application-id");
   if (current.profile.login_type === "tenant_admin") requiredText(ownerUserId, "owner-user-id");
+  if ((audience === "") !== (policies.length === 0)) {
+    throw invalid("audience and at least one permission-id are required together");
+  }
   const body: Record<string, unknown> = {
     identifier,
     display_name: displayName,
@@ -266,7 +269,6 @@ async function createAgent(app: AppContext, options: OptionValues, command: Comm
     throw new CliError({ code: "INVALID_SERVER_RESPONSE", message: "Agent creation response is invalid", exitCode: 9, requestId: created.requestId });
   }
   if (audience !== "" || policies.length > 0) {
-    if (audience === "" || policies.length === 0) throw invalid("audience and at least one permission-id are required together");
     try {
       const grant = await app.call(global, {
         method: "PUT",

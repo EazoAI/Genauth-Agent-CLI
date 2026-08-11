@@ -32,6 +32,22 @@ describe("runtime command journey", () => {
     expect(harness.requests).toHaveLength(0);
   });
 
+  it("requires a Credential secret destination", async () => {
+    const harness = await fixtureHarness();
+    await expect(harness.run(["credentials", "create", "--agent-id", "agt-1", "--no-store-keychain"]))
+      .rejects.toMatchObject({ code: "SECRET_DESTINATION_REQUIRED" });
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  it("allows acknowledged machine-readable Credential secret output without Keychain storage", async () => {
+    const harness = await fixtureHarness();
+    const result = await harness.run([
+      "credentials", "create", "--agent-id", "agt-1", "--no-store-keychain", "--show-secret", "--allow-secret-output"
+    ]);
+    expect(JSON.parse(result.stdout).data.client_secret).toBe("credential-secret");
+    expect(JSON.parse(result.stdout).data).not.toHaveProperty("secret_ref");
+  });
+
   it("revokes a newly delivered Credential if Keychain persistence fails", async () => {
     const harness = await fixtureHarness();
     const originalSet = harness.secrets.set.bind(harness.secrets);
@@ -79,6 +95,42 @@ describe("runtime command journey", () => {
     expect(harness.requests.at(-1)?.headers.authorization).toBe(`Basic ${Buffer.from("cred-1:credential-secret").toString("base64")}`);
   });
 
+  it("shows a Token only when explicitly requested", async () => {
+    const harness = await fixtureHarness();
+    await storeCredential(harness);
+    const result = await harness.run([...tokenArguments(), "--show-token"]);
+    expect(JSON.parse(result.stdout).data.access_token).toBe("runtime-jwt");
+  });
+
+  it("passes a process-lifetime Token to a child only through the environment", async () => {
+    const harness = await fixtureHarness();
+    await storeCredential(harness);
+    const result = await harness.run([
+      ...tokenArguments(), "--exec", process.execPath,
+      "--exec-arg=-e", "--exec-arg=process.exit(process.env.AGENT_IDENTITY_ACCESS_TOKEN === 'runtime-jwt' ? 0 : 1)"
+    ]);
+    expect(result.stdout).toBe("");
+  });
+
+  it.each([
+    ["not-json", "INVALID_CREDENTIAL_REFERENCE"],
+    ['{"credential_id":"cred-1"}', "INVALID_CREDENTIAL_REFERENCE"]
+  ])("rejects invalid stored Credential %s", async (stored, code) => {
+    const harness = await fixtureHarness();
+    await harness.secrets.set("keychain://agent-identity/credential/bad", stored);
+    await expect(harness.run([
+      "tokens", "issue", "--credential", "keychain://agent-identity/credential/bad", "--grant-id", "grant-1", "--audience", "orders"
+    ])).rejects.toMatchObject({ code });
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  it("rejects a missing Credential reference", async () => {
+    const harness = await fixtureHarness();
+    await expect(harness.run([
+      "tokens", "issue", "--credential", "keychain://agent-identity/credential/missing", "--grant-id", "grant-1", "--audience", "orders"
+    ])).rejects.toMatchObject({ code: "CREDENTIAL_NOT_FOUND" });
+  });
+
   it("decodes a Token from stdin without claiming signature verification", async () => {
     const harness = await fixtureHarness();
     const token = `${Buffer.from('{"alg":"RS256"}').toString("base64url")}.${Buffer.from('{"sub":"user-1"}').toString("base64url")}.signature`;
@@ -106,6 +158,20 @@ describe("runtime command journey", () => {
     const request = harness.requests.at(-1);
     expect(request?.path).toBe("/api/v3/agent-runtime/providers/orders-provider/orders/1");
     expect(request?.headers.authorization).toBe("Bearer runtime-jwt");
+  });
+
+  it("encodes a non-JSON Provider response", async () => {
+    const harness = await createHarness({ handler(request, response) {
+      if (request.path === "/api/v3/agent-runtime/token") response.end('{"data":{"access_token":"runtime-jwt"}}');
+      else { response.setHeader("X-Request-Id", "req-binary"); response.end("plain response"); }
+    } });
+    active.push(harness);
+    await storeCredential(harness);
+    const result = await harness.run([
+      "providers", "call", "--credential", "keychain://agent-identity/credential/cred-1",
+      "--grant-id", "grant-1", "--audience", "orders", "--provider", "p", "--path", "/plain"
+    ]);
+    expect(JSON.parse(result.stdout).data).toEqual({ content_base64: Buffer.from("plain response").toString("base64"), encoding: "base64" });
   });
 
   it.each(["https://evil.example/x", "//evil", "/orders/../admin"])("rejects unsafe Provider path %s", async path => {

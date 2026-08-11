@@ -12,8 +12,7 @@
   },
   "files": [
     "dist",
-    "README.md",
-    "LICENSE"
+    "README.md"
   ],
   "repository": {
     "type": "git",
@@ -27,15 +26,18 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "tsx scripts/clean.ts",
+    "build": "npm run clean && tsc -p tsconfig.build.json && tsx scripts/finalize-build.ts",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "verify": "npm run check && npm run test && npm run build && npm run contract:export && npm run pack:check",
+    "metadata:check": "node scripts/verify-release-metadata.mjs",
+    "verify": "npm run check && npm run test:coverage && npm run build && npm run contract:export && npm run metadata:check && npm run pack:check",
     "dev": "tsx src/bin/agent-identity.ts",
     "contract:export": "tsx scripts/export-command-contract.ts",
     "skills:verify": "tsx scripts/verify-skills.ts ../genauth-agent-skill",
-    "pack:check": "tsx scripts/pack-smoke.ts --check-only"
+    "pack:check": "tsx scripts/pack-smoke.ts",
+    "smoke:npm": "node scripts/smoke-npm-install.mjs"
   },
   "dependencies": {
     "@commander-js/extra-typings": "^15.0.0",

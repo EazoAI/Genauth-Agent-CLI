@@ -11,18 +11,57 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.target }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - linux-x64
+          - linux-arm64
+          - macos-x64
+          - macos-arm64
+          - windows-x64
+        node:
+          - 22
+          - 24
+        include:
+          - target: linux-x64
+            os: ubuntu-24.04
+          - target: linux-arm64
+            os: ubuntu-24.04-arm
+          - target: macos-x64
+            os: macos-13
+          - target: macos-arm64
+            os: macos-14
+          - target: windows-x64
+            os: windows-2025
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-node@v4
         with:
-          go-version-file: go.mod
-          cache: true
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run smoke:npm
+
+  skills:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: genauth-agent-cli
+      - uses: actions/checkout@v4
+        with:
+          repository: Authing/genauth-agent-skill
+          path: genauth-agent-skill
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: npm/package.json
-      - run: make verify
-      - run: make test-race
-      - run: make npm-smoke
+          cache-dependency-path: genauth-agent-cli/package-lock.json
+      - run: npm ci
+        working-directory: genauth-agent-cli
+      - run: npm run build && npm run contract:export && npm run skills:verify -- ../genauth-agent-skill
+        working-directory: genauth-agent-cli

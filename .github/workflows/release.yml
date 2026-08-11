@@ -11,24 +11,22 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
           registry-url: https://registry.npmjs.org
       - name: Verify tag version
+        shell: bash
         run: test "${GITHUB_REF_NAME#v}" = "$(tr -d '[:space:]' < VERSION)"
-      - run: make verify
-      - run: make test-race
-      - run: make npm-smoke
-      - run: make release-pack
-      - name: Publish npm packages
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run smoke:npm
+      - run: ./scripts/package-github-release.sh
+      - name: Publish npm package
         run: ./scripts/publish-npm.sh "${GITHUB_REF_NAME#v}" --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

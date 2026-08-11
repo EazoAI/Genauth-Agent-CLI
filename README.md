@@ -1,30 +1,21 @@
 # GenAuth Agent Identity CLI
 
-`agent-identity` is the user-facing CLI for the GenAuth Agent Identity lifecycle.
-It talks only to the configured GenAuth public endpoint; it never calls Agent
-Identity private service routes directly.
+`agent-identity` is the Node.js CLI for the complete GenAuth Agent Identity
+journey. It authenticates a tenant administrator or user, selects one user
+pool, creates and approves company Agents, manages Agent-level settings and
+Credentials, completes explicit or policy-allowed silent authorization, issues
+Agent access Tokens, and calls fixed Provider routes through GenAuth.
 
-## Security boundary
+The CLI calls only the configured GenAuth public endpoint. It never calls Agent
+Identity private service routes, EAK Delegation, or Token Vault directly.
 
-- Administrator and member profiles are scoped to one selected user pool.
-- Login refresh tokens, PKCE verifiers, authorization codes, and Agent
-  Credential secrets are stored in the operating-system keyring.
-- JSON is the stable automation format. Secret and Token material is omitted
-  unless an explicitly confirmed command requires it.
-- GenAuth remains the public ingress and Provider forwarding layer. Agent
-  Identity owns authorization state and Agent access-token signing.
+## Requirements and installation
 
-## Build and verify
+- Node.js 22.22 or newer (Node 24 is also tested).
+- macOS arm64/x64, Linux arm64/x64, or Windows x64.
+- An operating-system secret store available to the current desktop/session.
 
-```bash
-make verify
-./bin/agent-identity --help
-```
-
-## Install with npm
-
-End users do not need a Go toolchain. The public npm launcher installs the
-matching prebuilt platform package and exposes the existing command:
+Install globally from npm after the package is published:
 
 ```bash
 npm install --global @authing/agent-identity-cli
@@ -32,62 +23,105 @@ agent-identity version
 agent-identity --help
 ```
 
-The npm launcher does not download executables in a `postinstall` hook. npm
-selects one package using its `os` and `cpu` metadata. Do not install with
-`--omit=optional`, because the platform package is intentionally declared as an
-optional dependency so packages for other platforms can be skipped.
+The npm package contains JavaScript plus the native Keychain adapter dependency;
+there is no Go compiler, downloaded executable, platform subpackage, or
+`postinstall` binary fetch.
 
-Supported targets:
+## First journey
 
-- macOS arm64 and x64
-- Linux arm64 and x64
-- Windows x64
-
-Go developers may still install directly from source:
+Tenant administrator login also selects a user pool:
 
 ```bash
-make install
+agent-identity --endpoint https://genauth.example.com auth login \
+  --admin --client-id your-client-id --user-pool-id pool-id
 ```
 
-## Prepare a release
+A user login always binds to their own identity and one user pool:
 
-Update all Go and npm version metadata, verify, and build the distributable
-artifacts:
+```bash
+agent-identity --endpoint https://genauth.example.com auth login \
+  --client-id your-client-id --user-pool-id pool-id
+```
+
+Continue with discoverable help or the companion Skills:
+
+```bash
+agent-identity permissions scopes
+agent-identity agents create --help
+agent-identity agents capability submit --help
+agent-identity approvals list
+agent-identity credentials create --help
+agent-identity authorizations create --help
+agent-identity tokens issue --help
+agent-identity providers call --help
+```
+
+Machine consumers should use the stable JSON envelope (the default), whose API
+version remains `agent-identity.cli/v1`. The canonical command contract is
+`agent-identity.commands/v2`; export it with `npm run contract:export`.
+
+## Security boundary
+
+- Every profile is scoped to one explicitly selected user pool.
+- Login refresh tokens, PKCE verifiers, authorization codes, and Agent
+  Credential secrets live in the operating-system keyring, never in the profile
+  file.
+- Secret and Token material is hidden unless the command has an explicit
+  acknowledgement. Runtime Tokens passed to child processes use environment
+  variables rather than command-line arguments.
+- Administrator silent authorization requires confirmation and server policy;
+  users can authorize only themselves with explicit consent.
+- Provider calls are restricted to GenAuth's fixed forwarding route and reject
+  absolute or traversal paths.
+- HTTP is accepted only for localhost with `--allow-insecure-localhost`. Custom
+  CA files extend, rather than replace, system roots. Proxy URLs cannot contain
+  credentials or paths.
+
+GenAuth remains the public ingress and Provider forwarding layer. Agent Identity
+owns authorization state and Agent access-token signing. Permission definitions
+remain in the upstream permission system; Agent Identity stores snapshots.
+
+## Develop and verify
+
+```bash
+npm ci
+make verify
+make npm-smoke
+```
+
+`make verify` type-checks, runs unit/integration/contract tests, builds from a
+clean `dist`, exports commands/v2, verifies version metadata and the npm tarball,
+and checks the sibling `../genauth-agent-skill` repository. `make npm-smoke`
+performs a real `npm pack`, installs the tarball into an isolated prefix, and
+executes `agent-identity version` and `--help`.
+
+The GitHub verify workflow runs Node 22 and 24 across macOS arm64/x64, Linux
+arm64/x64, and Windows x64. The release workflow publishes one npm package with
+provenance and attaches that tarball plus checksums to the GitHub release.
+
+## Release
 
 ```bash
 node scripts/set-version.mjs 0.2.0
 make verify
-make test-race
 make npm-smoke
 make release-pack
 ```
 
-`make npm-smoke` packs the launcher and current platform package, installs both
-globally into an isolated temporary npm prefix, and executes
-`agent-identity version`.
-`make release-pack` creates the five platform binaries, GitHub archives, and
-`SHA256SUMS` under `dist/release`.
-
-Pushing a matching tag such as `v0.2.0` runs the GitHub release workflow. The
-workflow validates the tag against `VERSION`, publishes all platform packages
-before the launcher package, and creates a GitHub Release. Configure an npm
-automation token as the repository secret `NPM_TOKEN` before the first release.
-
-The package metadata currently uses `UNLICENSED`; choose and add the repository
-license before publishing it as public open-source software.
+Push the matching tag (for example `v0.2.0`) after CI passes. Configure npm
+trusted publishing or `NPM_TOKEN` before the first release. Package metadata is
+currently `UNLICENSED`; choose and add a license before publishing as public
+open-source software.
 
 ## Source layout
 
-- `cmd/agent-identity`: executable entrypoint.
-- `internal/cli/apiclient`: bounded, retry-aware GenAuth HTTP client.
-- `internal/cli/authflow`: browser login, refresh, revoke, and PKCE helpers.
-- `internal/cli/command`: command tree and user-journey orchestration.
-- `internal/cli/profile`: non-secret profile persistence.
-- `internal/cli/secretstore`: operating-system keyring adapter.
-- `npm/agent-identity-cli`: dependency-free Node launcher published to npm.
-- `npm/platforms`: OS/CPU-specific packages populated during release builds.
-- `scripts`: version synchronization, cross-compilation, packaging, and smoke
-  tests.
+- `src/bin`: executable entrypoint and stable failure handling.
+- `src/cli`: commands/v2 registry and journey orchestration.
+- `src/auth`: OIDC PKCE, browser callback, refresh, and revocation.
+- `src/http`: bounded, retry-aware GenAuth HTTP transport.
+- `src/storage`: Go-compatible profile and operating-system Keychain adapters.
+- `tests`: unit, management/runtime integration, and command contract tests.
+- `scripts`: contract, Skill, package, smoke, and release verification.
 
-The companion Skills are maintained separately in the sibling
-`genauth-agent-skill` source directory.
+The companion Skills are maintained in the sibling `genauth-agent-skill`
+repository and call only this CLI's JSON interface.

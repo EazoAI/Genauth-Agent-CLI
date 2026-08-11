@@ -1,9 +1,16 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Harness, RecordedRequest } from "../helpers/cli-harness.js";
 import { createHarness } from "../helpers/cli-harness.js";
 
 const active: Harness[] = [];
-afterEach(async () => Promise.all(active.splice(0).map(harness => harness.close())));
+const directories: string[] = [];
+afterEach(async () => {
+  await Promise.all(active.splice(0).map(harness => harness.close()));
+  await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
+});
 
 describe("management command boundaries", () => {
   it.each([
@@ -114,6 +121,44 @@ describe("management command boundaries", () => {
     expect(JSON.parse(harness.requests[1]?.body ?? "{}")).toMatchObject({ data_policy_ids: ["policy-1"], version: 0 });
   });
 
+  it("validates an incomplete Capability selection before creating the Agent", async () => {
+    const harness = await fixture();
+    await expect(harness.run([
+      "agents", "create", "--identifier", "orders-agent", "--display-name", "Orders",
+      "--application-id", "app-1", "--owner-user-id", "user-1", "--audience", "orders"
+    ])).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  it("loads Agent YAML and requires an explicit permission merge policy", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "agent-identity-agent-file-"));
+    directories.push(directory);
+    const file = path.join(directory, "agent.yaml");
+    await writeFile(file, [
+      "identifier: file-agent",
+      "display_name: File Agent",
+      "application_id: app-1",
+      "owner_user_id: user-1",
+      "audience: orders",
+      "permission_ids:",
+      "  - policy-file"
+    ].join("\n"), "utf8");
+    const harness = await fixture();
+    await expect(harness.run(["agents", "create", "--file", file, "--permission-id", "policy-cli"]))
+      .rejects.toMatchObject({ code: "AMBIGUOUS_PERMISSION_MERGE" });
+    await expect(harness.run(["agents", "create", "--file", file, "--permission-id", "policy-cli", "--replace-permissions", "--append-permission"]))
+      .rejects.toMatchObject({ code: "AMBIGUOUS_PERMISSION_MERGE" });
+    await harness.run(["agents", "create", "--file", file, "--permission-id", "policy-cli", "--append-permission"]);
+    expect(JSON.parse(harness.requests.at(-1)?.body ?? "{}").data_policy_ids).toEqual(["policy-file", "policy-cli"]);
+  });
+
+  it("allows a user to create their own company Agent without an owner override", async () => {
+    const harness = await fixture("user");
+    await harness.run(["agents", "create", "--name", "member-agent", "--application-id", "app-1"]);
+    expect(JSON.parse(harness.requests[0]?.body ?? "{}")).toMatchObject({ identifier: "member-agent", display_name: "member-agent", agent_type: "company" });
+    expect(JSON.parse(harness.requests[0]?.body ?? "{}")).not.toHaveProperty("owner_user_id");
+  });
+
   it("returns a resumable remediation when Agent creation succeeds but Capability draft creation fails", async () => {
     const harness = await createHarness({
       handler(request, response) {
@@ -160,6 +205,15 @@ describe("management command boundaries", () => {
       "agents", "settings", "update", "--agent-id", "agt-1", "--authorization-mode", "anything",
       "--token-ttl", "5m", "--max-user-grant-ttl", "1h"
     ])).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+  });
+
+  it("rejects invalid settings durations before mutation", async () => {
+    const harness = await fixture();
+    await expect(harness.run([
+      "agents", "settings", "update", "--agent-id", "agt-1", "--authorization-mode", "explicit-only",
+      "--token-ttl", "zero", "--max-user-grant-ttl", "1h"
+    ])).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+    expect(harness.requests).toHaveLength(0);
   });
 
   it("converts settings durations to seconds", async () => {
@@ -227,6 +281,17 @@ describe("management command boundaries", () => {
     ])).rejects.toMatchObject({ code: "CONFIRMATION_REQUIRED" });
   });
 
+  it.each([
+    [[], "at least one permission-id"],
+    [["--permission-id", "policy-1", "--mode", "unknown"], "mode must be explicit or silent"]
+  ] as const)("validates authorization input before mutation", async (extra, message) => {
+    const harness = await fixture();
+    await expect(harness.run([
+      "authorizations", "create", "--agent-id", "agt-1", "--user-id", "user-1", "--audience", "orders", ...extra
+    ])).rejects.toMatchObject({ code: "INVALID_ARGUMENT", message: expect.stringContaining(message) });
+    expect(harness.requests).toHaveLength(0);
+  });
+
   it("creates a confirmed silent administrator grant request", async () => {
     const harness = await fixture();
     await harness.run([
@@ -278,6 +343,42 @@ describe("management command boundaries", () => {
       code_ref: "keychain://agent-identity/authorization/auth-1/code"
     });
     expect(result.stdout).not.toContain("one-time-code");
+  });
+
+  it("shows a consent code only when explicitly requested", async () => {
+    const harness = await fixture("user");
+    const result = await harness.run(["authorizations", "consent", "--authorization-id", "auth-1", "--show-code"]);
+    expect(JSON.parse(result.stdout).data.authorization_code).toBe("one-time-code");
+  });
+
+  it("rejects user-only authorization decisions from an administrator profile", async () => {
+    const harness = await fixture();
+    await expect(harness.run(["authorizations", "consent", "--authorization-id", "auth-1"]))
+      .rejects.toMatchObject({ code: "USER_LOGIN_REQUIRED" });
+    await expect(harness.run(["authorizations", "deny", "--authorization-id", "auth-1", "--reason", "no", "--yes"]))
+      .rejects.toMatchObject({ code: "USER_LOGIN_REQUIRED" });
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  it("rejects an exchange when its PKCE verifier is unavailable", async () => {
+    const harness = await fixture("user");
+    await expect(harness.run(["authorizations", "exchange", "--authorization-id", "auth-missing"]))
+      .rejects.toMatchObject({ code: "PKCE_NOT_FOUND" });
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  it.each([
+    ["DENIED", "AUTHORIZATION_DENIED"],
+    ["EXPIRED", "AUTHORIZATION_EXPIRED"],
+    ["CANCELLED", "AUTHORIZATION_CANCELLED"]
+  ])("maps terminal authorization status %s", async (status, code) => {
+    const harness = await createHarness({ loginType: "user", handler: (_request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ data: { status } }));
+    } });
+    active.push(harness);
+    await expect(harness.run(["authorizations", "wait", "--authorization-id", "auth-terminal"]))
+      .rejects.toMatchObject({ code });
   });
 
   it("probes the secret store before mutating consent state", async () => {

@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { CliError } from "../../core/errors.js";
-import { validateEndpoint } from "../../storage/profile-store.js";
 import type { AppContext } from "../context.js";
+import { validateCliEndpoint } from "../context.js";
 import type { CommandRegistry } from "../manifest.js";
 
 export function registerProfileCommands(parent: Command, registry: CommandRegistry, app: AppContext): void {
@@ -46,7 +46,9 @@ export function registerProfileCommands(parent: Command, registry: CommandRegist
     ]
   }, async (options, command) => {
     const global = app.global(command);
-    const endpoint = text(options.endpoint);
+    // Commander resolves the root and leaf --endpoint flags into the global
+    // option bag. Treat that value as the profile mutation input here.
+    const endpoint = text(options.endpoint) || global.endpoint;
     const clientId = text(options.clientId);
     if (endpoint === "" && clientId === "") {
       throw new CliError({ code: "INVALID_ARGUMENT", message: "at least one of endpoint or client-id is required", exitCode: 2 });
@@ -56,11 +58,7 @@ export function registerProfileCommands(parent: Command, registry: CommandRegist
     });
     const updated = { ...current.profile };
     if (endpoint !== "") {
-      try {
-        validateEndpoint(endpoint);
-      } catch {
-        throw new CliError({ code: "INVALID_ENDPOINT", message: "endpoint must be a GenAuth HTTPS origin", exitCode: 2 });
-      }
+      validateCliEndpoint(endpoint, global.allowInsecureLocalhost);
       updated.endpoint = endpoint.replace(/\/$/u, "");
     }
     if (clientId !== "") {

@@ -1,55 +1,55 @@
 SHELL := /bin/sh
-GO_FILES := $$(find . -name '*.go')
 
-.PHONY: help format test test-race vet build install metadata-check npm-test release-build release-pack npm-smoke verify
+.PHONY: help install clean check test coverage build metadata-check skills-check pack-check npm-smoke release-pack verify
 
 help:
-	@echo "format      Format Go source"
-	@echo "test        Run unit tests"
-	@echo "test-race   Run race-enabled tests"
-	@echo "vet         Run go vet"
-	@echo "build       Build bin/agent-identity"
-	@echo "install     Install agent-identity with go install"
-	@echo "metadata-check Check Go and npm package versions"
-	@echo "npm-test    Test the npm launcher"
-	@echo "release-build Build all npm platform binaries"
-	@echo "release-pack Build npm and GitHub release artifacts"
-	@echo "npm-smoke   Install the local npm packages and run the CLI"
-	@echo "verify      Format, test, vet, build, and test the npm launcher"
+	@echo "install        Install the CLI globally from this checkout"
+	@echo "clean          Remove generated dist output"
+	@echo "check          Type-check all source, scripts, and tests"
+	@echo "test           Run the Vitest suite"
+	@echo "coverage       Run tests with coverage"
+	@echo "build          Compile the Node.js CLI"
+	@echo "metadata-check Verify synchronized release metadata"
+	@echo "skills-check   Verify the sibling Skills against commands/v2"
+	@echo "pack-check     Inspect the npm tarball manifest"
+	@echo "npm-smoke      Pack, install, and execute the npm package"
+	@echo "release-pack   Create the npm GitHub release artifact"
+	@echo "verify         Run all local non-install verification gates"
 
-format:
-	gofmt -w $(GO_FILES)
+install: build
+	npm install --global .
+
+clean:
+	npm run clean
+
+check:
+	npm run check
 
 test:
-	go test ./...
+	npm test
 
-test-race:
-	go test -race ./...
-
-vet:
-	go vet ./...
+coverage:
+	npm run test:coverage
 
 build:
-	mkdir -p bin
-	go build -trimpath -o bin/agent-identity ./cmd/agent-identity
-
-install:
-	go install ./cmd/agent-identity
+	npm run build
+	npm run contract:export
 
 metadata-check:
-	node ./scripts/verify-release-metadata.mjs
+	npm run metadata:check
 
-npm-test:
-	npm --prefix npm test
+skills-check: build
+	npm run skills:verify
 
-release-build:
-	./scripts/build-release.sh
-	node ./scripts/stage-npm-packages.mjs
+pack-check: build metadata-check
+	npm run pack:check
 
-release-pack: release-build
+npm-smoke: build metadata-check
+	npm run smoke:npm
+
+release-pack: verify
 	./scripts/package-github-release.sh
 
-npm-smoke: release-build
-	node ./scripts/smoke-npm-install.mjs
-
-verify: format test vet build metadata-check npm-test
+verify:
+	npm run verify
+	npm run skills:verify

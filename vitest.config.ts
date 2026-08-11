@@ -8,6 +8,9 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary"],
       include: ["src/**/*.ts"],
+      // Platform launch/browser/keyring adapters are exercised by npm and real
+      // Keychain smoke gates; unit coverage focuses on deterministic logic.
+      exclude: ["src/bin/**", "src/auth/browser.ts", "src/storage/native-keychain.ts"],
       thresholds: {
         lines: 80,
         functions: 80,

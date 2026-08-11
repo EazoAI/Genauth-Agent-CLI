@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import type { Readable, Writable } from "node:stream";
 import type { Command, OptionValues } from "commander";
 import { inspectJwt } from "../../core/jwt.js";
 import { CliError } from "../../core/errors.js";
@@ -195,9 +194,12 @@ async function runChild(app: AppContext, executable: string, arguments_: string[
   return new Promise<number>((resolve, reject) => {
     const child = spawn(executable, arguments_, {
       env: { ...process.env, AGENT_IDENTITY_ACCESS_TOKEN: accessToken },
-      stdio: [app.io.input as Readable, app.io.output as Writable, app.io.error as Writable],
+      stdio: ["pipe", "pipe", "pipe"],
       shell: false
     });
+    child.stdin && app.io.input.pipe(child.stdin);
+    child.stdout?.pipe(app.io.output, { end: false });
+    child.stderr?.pipe(app.io.error, { end: false });
     child.once("error", reject);
     child.once("exit", code => resolve(code ?? 1));
   });

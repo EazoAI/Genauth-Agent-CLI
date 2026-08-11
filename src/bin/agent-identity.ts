@@ -22,6 +22,6 @@ export async function run(arguments_: string[] = process.argv): Promise<number> 
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  process.exitCode = await run();
-}
+// This file is the package's dedicated executable entrypoint. Run
+// unconditionally so npm's symlink/shim path works on every supported OS.
+process.exitCode = await run();

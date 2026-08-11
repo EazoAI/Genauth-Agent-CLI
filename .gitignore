@@ -1,11 +1,5 @@
 /.DS_Store
-/bin/
 /dist/
-/npm/platforms/*/bin/
-/npm/platforms/*/README.md
-/npm/*.tgz
-/npm/platforms/*/*.tgz
-/coverage.out
 /node_modules/
 /coverage/
 /*.tgz

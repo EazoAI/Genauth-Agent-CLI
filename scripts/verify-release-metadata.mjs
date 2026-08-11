@@ -9,27 +9,16 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const version = (await readFile(path.join(repositoryRoot, "VERSION"), "utf8")).trim();
 assert.match(version, /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/, "VERSION must contain a semantic version");
 
-const manifestPaths = [
-  "npm/package.json",
-  "npm/agent-identity-cli/package.json",
-  "npm/platforms/darwin-arm64/package.json",
-  "npm/platforms/darwin-x64/package.json",
-  "npm/platforms/linux-arm64/package.json",
-  "npm/platforms/linux-x64/package.json",
-  "npm/platforms/win32-x64/package.json"
-];
+const manifest = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
+const lock = JSON.parse(await readFile(path.join(repositoryRoot, "package-lock.json"), "utf8"));
+assert.equal(manifest.version, version, "package.json version must match VERSION");
+assert.equal(lock.version, version, "package-lock.json version must match VERSION");
+assert.equal(lock.packages?.[""]?.version, version, "package-lock root version must match VERSION");
+assert.equal(manifest.type, "module", "package must remain ESM");
+assert.equal(manifest.bin?.["agent-identity"], "dist/bin/agent-identity.js", "package must expose the Node CLI");
+assert.match(manifest.engines?.node ?? "", />=22/u, "Node 22 or newer must be required");
 
-for (const relativePath of manifestPaths) {
-  const manifest = JSON.parse(await readFile(path.join(repositoryRoot, relativePath), "utf8"));
-  assert.equal(manifest.version, version, `${relativePath} version must match VERSION`);
-}
+const rootSource = await readFile(path.join(repositoryRoot, "src/cli/commands/system.ts"), "utf8");
+assert.match(rootSource, new RegExp(`CLI_VERSION = ["']${version.replaceAll(".", "\\.")}["']`), "Node CLI version must match VERSION");
 
-const launcher = JSON.parse(await readFile(path.join(repositoryRoot, "npm/agent-identity-cli/package.json"), "utf8"));
-for (const [packageName, dependencyVersion] of Object.entries(launcher.optionalDependencies)) {
-  assert.equal(dependencyVersion, version, `${packageName} version must match VERSION`);
-}
-
-const rootSource = await readFile(path.join(repositoryRoot, "internal/cli/command/root.go"), "utf8");
-assert.match(rootSource, new RegExp(`var Version = ["']${version.replaceAll(".", "\\.")}["']`), "Go development version must match VERSION");
-
-console.log(`release metadata is synchronized at ${version}`);
+console.log(`Node release metadata is synchronized at ${version}`);
