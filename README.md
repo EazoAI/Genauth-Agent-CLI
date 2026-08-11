@@ -105,6 +105,26 @@ arm64/x64, and Windows x64. The release workflow publishes one npm package with
 provenance and attaches that tarball plus checksums to the GitHub release only
 after the platform matrix, installed journey, and Skill contract jobs all pass.
 
+## GitLab CI to GitHub
+
+The repository's [`.gitlab-ci.yml`](.gitlab-ci.yml) synchronizes commits on the
+GitLab default branch and Git tags to the configured GitHub repository. GitHub
+then runs its own verification or release workflow for the mirrored ref.
+
+The sync job never force-pushes and never places the GitHub token in a remote
+URL. Configure these GitLab CI/CD variables:
+
+| Variable | Requirement |
+| --- | --- |
+| `GITHUB_TOKEN` | Masked and protected; a fine-grained token with `Contents: Read and write` on the target repository |
+| `AGENT_CLI_GITHUB_REPOSITORY` | Required `owner/repository` value, for example `Authing/genauth-agent-cli` |
+| `GITHUB_TARGET_BRANCH` | Optional GitHub branch name; defaults to the GitLab default branch name |
+
+Protect the GitLab default branch and every mirrored tag pattern so protected
+variables are available to the job. If the GitHub branch has diverged, or a tag
+with the same name points at a different commit, synchronization fails safely
+and requires manual reconciliation.
+
 ## Release
 
 ```bash

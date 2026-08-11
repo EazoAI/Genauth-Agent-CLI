@@ -1,0 +1,86 @@
+image:
+  name: alpine/git:latest
+  entrypoint: [""]
+
+default:
+  tags:
+    - eak-us
+
+stages:
+  - sync
+
+variables:
+  GIT_DEPTH: "0"
+  GIT_STRATEGY: fetch
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+
+sync_github:
+  stage: sync
+  resource_group: github-mirror
+  interruptible: false
+  rules:
+    - if: '$CI_COMMIT_TAG'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  before_script:
+    - git --version
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - |
+      if [ -z "${GITHUB_TOKEN:-}" ]; then
+        echo "Missing protected and masked GitLab CI/CD variable: GITHUB_TOKEN" >&2
+        exit 1
+      fi
+    - |
+      if [ -z "${AGENT_CLI_GITHUB_REPOSITORY:-}" ]; then
+        echo "Missing GitLab CI/CD variable: AGENT_CLI_GITHUB_REPOSITORY (expected owner/repository)" >&2
+        exit 1
+      fi
+      if ! printf '%s' "$AGENT_CLI_GITHUB_REPOSITORY" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'; then
+        echo "AGENT_CLI_GITHUB_REPOSITORY must use owner/repository format" >&2
+        exit 1
+      fi
+      github_owner="${AGENT_CLI_GITHUB_REPOSITORY%/*}"
+      github_repository="${AGENT_CLI_GITHUB_REPOSITORY#*/}"
+      case "$github_owner:$github_repository" in
+        .:*|..:*|*:.|*:..|*:*.git)
+          echo "AGENT_CLI_GITHUB_REPOSITORY must not contain dot traversal or a .git suffix" >&2
+          exit 1
+          ;;
+      esac
+    - git remote remove github 2>/dev/null || true
+    - git remote add github "https://github.com/${AGENT_CLI_GITHUB_REPOSITORY}.git"
+  script:
+    - |
+      github_basic_auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+      export GIT_CONFIG_COUNT=1
+      export GIT_CONFIG_KEY_0='http.https://github.com/.extraheader'
+      export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $github_basic_auth"
+      export GIT_TERMINAL_PROMPT=0
+      unset github_basic_auth
+
+      if [ -n "${CI_COMMIT_TAG:-}" ]; then
+        git fetch origin "refs/tags/${CI_COMMIT_TAG}:refs/tags/${CI_COMMIT_TAG}"
+        echo "Pushing tag ${CI_COMMIT_TAG} to GitHub repository ${AGENT_CLI_GITHUB_REPOSITORY}"
+        if ! git push github "refs/tags/${CI_COMMIT_TAG}:refs/tags/${CI_COMMIT_TAG}"; then
+          echo "GitHub tag push failed. Check authentication, repository access, or a conflicting tag; this job never force-pushes." >&2
+          exit 1
+        fi
+      else
+        target_branch="${GITHUB_TARGET_BRANCH:-$CI_DEFAULT_BRANCH}"
+        if ! git check-ref-format --branch "$target_branch" >/dev/null 2>&1; then
+          echo "GITHUB_TARGET_BRANCH is not a valid Git branch name" >&2
+          exit 1
+        fi
+        echo "Pushing ${CI_COMMIT_SHA} to GitHub branch ${target_branch} in ${AGENT_CLI_GITHUB_REPOSITORY}"
+        if ! git push github "${CI_COMMIT_SHA}:refs/heads/${target_branch}"; then
+          echo "GitHub push failed. Check authentication, repository access, and whether the target branch has diverged; this job never force-pushes." >&2
+          exit 1
+        fi
+      fi
+  after_script:
+    - git remote remove github 2>/dev/null || true
