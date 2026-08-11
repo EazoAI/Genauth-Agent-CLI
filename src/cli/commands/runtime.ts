@@ -176,12 +176,13 @@ async function issueToken(app: AppContext, global: GlobalOptions, options: Optio
   if (!credential.credential_id || !credential.client_secret) throw new CliError({ code: "INVALID_CREDENTIAL_REFERENCE", message: "stored credential is invalid", exitCode: 2 });
   const loaded = await app.loadClient(global);
   try {
+    const requestedPermissions = stringOptions(options.permissionId);
     return await loaded.client.runtimeToken({
       credentialId: credential.credential_id,
       secret: credential.client_secret,
       userGrantId: grantId,
       audience,
-      permissionIds: stringOptions(options.permissionId),
+      permissionIds: requestedPermissions.length > 0 ? requestedPermissions : null,
       ttlSeconds: integerOption(options.ttlSeconds, "ttl-seconds", 0)
     });
   } catch (error) {

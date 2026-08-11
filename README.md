@@ -87,6 +87,7 @@ remain in the upstream permission system; Agent Identity stores snapshots.
 npm ci
 make verify
 make npm-smoke
+make migration-gates
 ```
 
 `make verify` type-checks, runs unit/integration/contract tests, builds from a
@@ -95,9 +96,17 @@ and checks the sibling `../genauth-agent-skill` repository. `make npm-smoke`
 performs a real `npm pack`, installs the tarball into an isolated prefix, and
 executes `agent-identity version` and `--help`.
 
+`make migration-gates` additionally builds the annotated Go baseline and
+compares every mapped leaf command, error exit, HTTP request and JSON envelope;
+it also proves bidirectional Go/Node Keychain compatibility and runs the full
+three-actor journey through an isolated global install of the packed npm
+tarball. The Keychain-backed gates run on macOS.
+
 The GitHub verify workflow runs Node 22 and 24 across macOS arm64/x64, Linux
 arm64/x64, and Windows x64. The release workflow publishes one npm package with
-provenance and attaches that tarball plus checksums to the GitHub release.
+provenance and attaches that tarball plus checksums to the GitHub release only
+after the platform matrix, Go/Node differential, installed journey, and Skill
+contract jobs all pass.
 
 ## Release
 

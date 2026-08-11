@@ -127,7 +127,7 @@ export class ApiClient {
     secret: string;
     userGrantId: string;
     audience: string;
-    permissionIds: string[];
+    permissionIds: string[] | null;
     ttlSeconds: number;
     signal?: AbortSignal;
   }): Promise<ApiResponse<T>> {

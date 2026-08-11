@@ -93,6 +93,7 @@ describe("runtime command journey", () => {
     expect(envelope.data).toEqual({ jti: "jti-1", expires_in: 300 });
     expect(result.stdout).not.toContain("runtime-jwt");
     expect(harness.requests.at(-1)?.headers.authorization).toBe(`Basic ${Buffer.from("cred-1:credential-secret").toString("base64")}`);
+    expect(JSON.parse(harness.requests.at(-1)?.body ?? "{}").permission_ids).toBeNull();
   });
 
   it("shows a Token only when explicitly requested", async () => {

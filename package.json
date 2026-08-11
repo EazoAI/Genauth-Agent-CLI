@@ -31,6 +31,8 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:differential": "npm run build && vitest run --config vitest.differential.config.ts",
+    "test:e2e": "npm run build && npm run contract:export && vitest run --config vitest.e2e.config.ts",
     "metadata:check": "node scripts/verify-release-metadata.mjs",
     "verify": "npm run check && npm run test:coverage && npm run build && npm run contract:export && npm run metadata:check && npm run pack:check",
     "dev": "tsx src/bin/agent-identity.ts",
