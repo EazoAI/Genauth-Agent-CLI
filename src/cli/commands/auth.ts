@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import { OAuthClient, type OAuthToken } from "../../auth/oauth.js";
+import { discoverLoginConfig } from "../../auth/login-config.js";
 import { tokenSubject } from "../../core/jwt.js";
 import { CliError } from "../../core/errors.js";
 import { readLimitedStdin } from "../../core/input.js";
@@ -19,7 +20,7 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
     options: [
       { flags: "--user-pool-id <id>", description: "selected user pool ID" },
       { flags: "--profile-name <name>", description: "profile to create", defaultValue: "default" },
-      { flags: "--client-id <id>", description: "GenAuth OIDC client ID" },
+      { flags: "--client-id <id>", description: "override the discovered GenAuth OIDC client ID", hidden: true },
       { flags: "--admin", description: "login as tenant administrator" },
       { flags: "--session-token-stdin", description: "read an existing GenAuth session token from stdin" }
     ]
@@ -41,7 +42,8 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
     }
     validateCliEndpoint(global.endpoint, global.allowInsecureLocalhost);
     await app.probeSecretStore();
-    const clientId = text(options.clientId);
+    let clientId = text(options.clientId);
+    const warnings: string[] = [];
     const secretRef = `keychain://genauth-agent/session/${profileName}`;
     let transport: ApiClient;
     try {
@@ -58,6 +60,7 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
       throw error;
     }
     let token: OAuthToken;
+    let loginConfigRequestId = "";
     if (options.sessionTokenStdin) {
       const value = await readLimitedStdin(app.io.input);
       if (value === "") {
@@ -71,6 +74,13 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
           message: "browser login cannot run in non-interactive mode; use session-token-stdin",
           exitCode: 2
         });
+      }
+      if (clientId === "") {
+        const discovered = await discoverLoginConfig(transport);
+        clientId = discovered.clientId;
+        loginConfigRequestId = discovered.requestId;
+      } else {
+        warnings.push("--client-id is deprecated; GenAuth login configuration is normally discovered from the endpoint");
       }
       const controller = AbortSignal.timeout(5 * 60_000);
       try {
@@ -101,7 +111,7 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
       selected_user_pool_id: userPoolId,
       secret_ref: secretRef
     };
-    let requestId = "";
+    let requestId = loginConfigRequestId;
     if (admin) {
       const selected = await selectAdminUserPool(global, token.access_token, userPoolId, transport);
       profile.selected_user_pool_id = selected.userPoolId;
@@ -123,7 +133,7 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
       subject_id: profile.subject_id ?? "",
       selected_user_pool_id: profile.selected_user_pool_id,
       secret_ref: secretRef
-    }, requestId);
+    }, requestId, warnings);
   });
 
   registry.leaf(auth, {

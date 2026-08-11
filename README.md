@@ -33,15 +33,21 @@ Tenant administrator login also selects a user pool:
 
 ```bash
 genauth-agent --endpoint https://genauth.example.com auth login \
-  --admin --client-id your-client-id --user-pool-id pool-id
+  --admin --profile-name agent-admin
 ```
 
 A user login always binds to their own identity and one user pool:
 
 ```bash
 genauth-agent --endpoint https://genauth.example.com auth login \
-  --client-id your-client-id --user-pool-id pool-id
+  --user-pool-id pool-id --profile-name agent-user
 ```
+
+The CLI discovers the dedicated public OIDC login client from GenAuth at
+`/api/v3/agent-identity/auth/config`, then opens the default GenAuth login page
+and completes Authorization Code + PKCE S256 through a one-time loopback
+callback. `--client-id` remains only as a hidden compatibility override for
+older development environments.
 
 Continue with discoverable help or the companion Skills:
 

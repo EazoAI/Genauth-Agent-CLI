@@ -30,4 +30,10 @@ describe("commands/v2 manifest", () => {
       for (const option of command.options) expect(option.flags).toMatch(/^--[a-z]/u);
     }
   });
+  it("keeps client-id only as a hidden login compatibility override", () => {
+    const login = contract.commands.find(command => command.path === "auth login");
+    expect(login?.options.find(option => option.flags === "--client-id <id>")).toMatchObject({
+      hidden: true
+    });
+  });
 });
