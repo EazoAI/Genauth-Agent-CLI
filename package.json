@@ -16,11 +16,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Authing/genauth-agent-cli.git"
+    "url": "git+https://github.com/EazoAI/Genauth-Agent-CLI.git"
   },
-  "homepage": "https://github.com/Authing/genauth-agent-cli#readme",
+  "homepage": "https://github.com/EazoAI/Genauth-Agent-CLI#readme",
   "bugs": {
-    "url": "https://github.com/Authing/genauth-agent-cli/issues"
+    "url": "https://github.com/EazoAI/Genauth-Agent-CLI/issues"
   },
   "publishConfig": {
     "access": "public"

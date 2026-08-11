@@ -18,7 +18,7 @@ Identity private service routes, EAK Delegation, or Token Vault directly.
 Install globally from npm after the package is published:
 
 ```bash
-npm install --global @authing/genauth-agent-cli
+npm install --global @eazo/genauth-agent-cli
 genauth-agent version
 genauth-agent --help
 ```
@@ -111,7 +111,7 @@ URL. Configure these GitLab CI/CD variables:
 | Variable | Requirement |
 | --- | --- |
 | `GITHUB_TOKEN` | Masked and protected; a fine-grained token with `Contents: Read and write` on the target repository |
-| `AGENT_CLI_GITHUB_REPOSITORY` | Required `owner/repository` value, for example `Authing/genauth-agent-cli` |
+| `AGENT_CLI_GITHUB_REPOSITORY` | Required `owner/repository` value, for example `EazoAI/Genauth-Agent-CLI` |
 | `GITHUB_TARGET_BRANCH` | Optional GitHub branch name; defaults to the GitLab default branch name |
 
 Protect the GitLab default branch and every mirrored tag pattern so protected
@@ -128,7 +128,7 @@ rebuilds the package, reruns the release metadata and tarball checks, and then
 publishes the public package to npmjs.org.
 
 Configure `NPM_TOKEN` as a masked, protected, raw GitLab CI/CD variable. The
-token must be allowed to publish `@authing/genauth-agent-cli` and must satisfy
+token must be allowed to publish `@eazo/genauth-agent-cli` and must satisfy
 the npm account or organization 2FA policy. Protect release Tag patterns so the
 variable is available to Tag pipelines. The temporary project `.npmrc` is
 removed after every publish attempt.
