@@ -27,6 +27,42 @@ The npm package contains JavaScript plus the native Keychain adapter dependency;
 there is no Go compiler, downloaded executable, platform subpackage, or
 `postinstall` binary fetch.
 
+## Install Agent Identity Skills
+
+The CLI and its companion Skills are released separately. Installing or
+upgrading `@eazo/genauth-agent-cli` does not install or update the Skills.
+Install the latest complete Skill set from the
+[GenAuth Agent Skill GitHub repository](https://github.com/EazoAI/Genauth-Agent-Skill):
+
+```bash
+npx skills add EazoAI/Genauth-Agent-Skill -y -g
+npx skills list -g
+```
+
+To inspect the available Skills before installing them:
+
+```bash
+npx skills add EazoAI/Genauth-Agent-Skill --list
+```
+
+When asking Codex, OpenCode, or another Skill-compatible AI agent to set up
+Agent Identity, give it the repository URL explicitly and ask it to install
+both components. For example:
+
+```text
+Install or upgrade the GenAuth Agent Identity CLI from npm, then install all
+latest Agent Identity Skills from
+https://github.com/EazoAI/Genauth-Agent-Skill. Verify the CLI contracts and the
+global Skill installation. Do not copy only one entry Skill; install the whole
+Skill repository with its shared Skills and references.
+```
+
+Install or update the complete repository: entry Skills depend on shared and
+domain Skills plus their reference files. After installation or update, start
+a fresh AI agent session so Codex or OpenCode reloads Skill discovery. Then use
+the `agent-identity-setup` Skill to verify the CLI, contracts, installed Skills,
+profile, selected user pool, and operating-system secret store.
+
 ## First journey
 
 Login always authenticates a tenant administrator through the dedicated root
@@ -42,6 +78,14 @@ The CLI discovers the dedicated public OIDC login client from GenAuth at
 `/api/v3/agent-identity/auth/config`, then opens the default GenAuth login page
 and completes Authorization Code + PKCE S256 through a one-time loopback
 callback. The CLI currently exposes no member-login or client-ID override flow.
+When more than one manageable user pool exists, the CLI reports each pool's
+name, domain, and ID. The same live list is available before switching context:
+
+```bash
+genauth-agent --profile agent-admin auth list-user-pools
+genauth-agent --profile agent-admin auth select-user-pool \
+  --user-pool-id USER_POOL_ID
+```
 
 Continue with discoverable help or the companion Skills:
 
@@ -157,5 +201,6 @@ open-source software.
 - `tests`: unit, management/runtime integration, and command contract tests.
 - `scripts`: contract, Skill, package, smoke, and release verification.
 
-The companion Skills are maintained in the sibling `genauth-agent-skill`
-repository and call only this CLI's JSON interface.
+The companion Skills are maintained in the
+[GenAuth Agent Skill repository](https://github.com/EazoAI/Genauth-Agent-Skill)
+and call only this CLI's JSON interface.

@@ -12,7 +12,13 @@ describe("authentication command branches", () => {
       "--endpoint", harness.endpoint, "--allow-insecure-localhost",
       "auth", "login", "--user-pool-id", "pool-1", "--profile-name", "admin", "--session-token-stdin"
     ], "opaque-session");
-    expect(JSON.parse(result.stdout).data).toMatchObject({ profile: "admin", login_type: "tenant_admin", selected_user_pool_id: "pool-1" });
+    expect(JSON.parse(result.stdout).data).toMatchObject({
+      profile: "admin",
+      login_type: "tenant_admin",
+      selected_user_pool_id: "pool-1",
+      selected_user_pool_name: "Development",
+      selected_user_pool_domain: "dev"
+    });
     expect((await harness.profileStore.load()).profiles.admin?.secret_ref).toBe("keychain://genauth-agent/session/admin");
     expect(await harness.secrets.get("keychain://genauth-agent/session/admin")).toContain("opaque-session");
   });
@@ -61,7 +67,98 @@ describe("authentication command branches", () => {
     await expect(harness.run([
       "--endpoint", harness.endpoint, "--allow-insecure-localhost",
       "auth", "login", "--profile-name", "ambiguous", "--session-token-stdin"
-    ], "token")).rejects.toMatchObject({ code: "USER_POOL_SELECTION_REQUIRED" });
+    ], "token")).rejects.toMatchObject({
+      code: "USER_POOL_SELECTION_REQUIRED",
+      message: "multiple manageable user pools found; choose one and retry with --user-pool-id: Development [dev] (pool-1), Production [prod] (pool-2)",
+      remediation: {
+        action: "retry_with_user_pool",
+        option: "--user-pool-id",
+        manageable_user_pools: [
+          { id: "pool-1", name: "Development", domain: "dev" },
+          { id: "pool-2", name: "Production", domain: "prod" }
+        ]
+      }
+    });
+  });
+
+  it("lists manageable pools with display metadata and the current selection", async () => {
+    const harness = await fixture();
+    const result = await harness.run(["auth", "list-user-pools"]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      kind: "UserPoolList",
+      data: {
+        selected_user_pool_id: "pool-1",
+        total_count: 2,
+        list: [
+          { id: "pool-1", name: "Development", domain: "dev", selected: true },
+          { id: "pool-2", name: "Production", domain: "prod", selected: false }
+        ]
+      }
+    });
+  });
+
+  it("shows selected pool metadata after switching and in status and doctor output", async () => {
+    const harness = await fixture();
+    const switched = JSON.parse((await harness.run([
+      "auth", "select-user-pool", "--user-pool-id", "pool-2"
+    ])).stdout);
+    expect(switched.data).toMatchObject({
+      selected_user_pool_id: "pool-2",
+      selected_user_pool_name: "Production",
+      selected_user_pool_domain: "prod"
+    });
+    const status = JSON.parse((await harness.run(["auth", "status"])).stdout);
+    expect(status.data).toMatchObject({
+      selected_user_pool_id: "pool-2",
+      selected_user_pool_name: "Production",
+      selected_user_pool_domain: "prod"
+    });
+    const doctor = JSON.parse((await harness.run(["doctor"])).stdout);
+    expect(doctor.data).toMatchObject({
+      selected_user_pool_id: "pool-2",
+      selected_user_pool_name: "Production",
+      selected_user_pool_domain: "prod"
+    });
+  });
+
+  it("returns named manageable pools when a selected pool ID is invalid", async () => {
+    const harness = await fixture();
+    await expect(harness.run([
+      "auth", "select-user-pool", "--user-pool-id", "unknown"
+    ])).rejects.toMatchObject({
+      code: "USER_POOL_NOT_MANAGEABLE",
+      message: "the selected user pool is not manageable by this administrator; choose one: Development [dev] (pool-1), Production [prod] (pool-2)",
+      remediation: {
+        action: "retry_with_user_pool",
+        option: "--user-pool-id",
+        manageable_user_pools: [
+          { id: "pool-1", name: "Development", domain: "dev" },
+          { id: "pool-2", name: "Production", domain: "prod" }
+        ]
+      }
+    });
+  });
+
+  it("falls back to pool IDs when an older server omits display metadata", async () => {
+    const harness = await createHarness({ handler: (request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      if (request.path === "/api/v3/agent-identity/auth/config") {
+        response.end(JSON.stringify({ data: loginConfig() }));
+        return;
+      }
+      response.end('{"data":{"list":[{"id":"pool-1"},{"id":"pool-2"}]}}');
+    } });
+    active.push(harness);
+    await expect(harness.run([
+      "--endpoint", harness.endpoint, "--allow-insecure-localhost",
+      "auth", "login", "--profile-name", "legacy", "--session-token-stdin"
+    ], "token")).rejects.toMatchObject({
+      code: "USER_POOL_SELECTION_REQUIRED",
+      message: "multiple manageable user pools found; choose one and retry with --user-pool-id: pool-1, pool-2",
+      remediation: {
+        manageable_user_pools: [{ id: "pool-1" }, { id: "pool-2" }]
+      }
+    });
   });
 
   it("refreshes the current profile explicitly", async () => {
@@ -79,6 +176,8 @@ describe("authentication command branches", () => {
 
   it("rejects pool switching for a user profile", async () => {
     const harness = await fixture("user");
+    await expect(harness.run(["auth", "list-user-pools"]))
+      .rejects.toMatchObject({ code: "ADMIN_LOGIN_REQUIRED" });
     await expect(harness.run(["auth", "select-user-pool", "--user-pool-id", "pool-2"]))
       .rejects.toMatchObject({ code: "TENANT_CONTEXT_REQUIRED" });
   });
@@ -103,7 +202,7 @@ function handleFixture(request: RecordedRequest, response: import("node:http").S
   if (request.path === "/api/v3/agent-identity/auth/config") {
     response.end(JSON.stringify({ data: loginConfig() }));
   } else if (request.path === "/api/v3/agent-identity/admin/user-pools") {
-    response.end('{"data":{"list":[{"id":"pool-1"},{"id":"pool-2"}]}}');
+    response.end('{"data":{"list":[{"id":"pool-1","name":"Development","domain":"dev"},{"id":"pool-2","name":"Production","domain":"prod"}]}}');
   } else if (request.path === "/oidc/token") {
     response.end('{"access_token":"new-access","refresh_token":"new-refresh"}');
   } else {

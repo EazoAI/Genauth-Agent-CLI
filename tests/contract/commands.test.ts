@@ -7,10 +7,11 @@ describe("commands/v2 manifest", () => {
   const paths = contract.commands.map(command => command.path);
 
   it("exports the v2 contract", () => expect(contract.command_contract).toBe(COMMAND_CONTRACT));
-  it("contains 52 canonical leaf commands", () => expect(paths).toHaveLength(52));
+  it("contains 53 canonical leaf commands", () => expect(paths).toHaveLength(53));
   it("has no duplicate command path", () => expect(new Set(paths).size).toBe(paths.length));
   it.each([
     "profiles list",
+    "auth list-user-pools",
     "auth select-user-pool",
     "agents capability submit",
     "agents lifecycle archive",

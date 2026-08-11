@@ -110,15 +110,16 @@ describe("management command boundaries", () => {
     const result = await harness.run([
       "agents", "create", "--identifier", "orders-agent", "--display-name", "Orders",
       "--application-id", "app-1", "--owner-user-id", "user-1",
-      "--audience", "orders", "--permission-id", "policy-1"
+      "--permission-id", "policy-1"
     ]);
     expect(JSON.parse(result.stdout).kind).toBe("AgentWithCapabilityDraft");
     expect(harness.requests.map(request => request.path)).toEqual([
+      "/api/v3/get-application-simple-info?appId=app-1",
       "/api/v3/agent-identity/admin/agents",
       "/api/v3/agent-identity/admin/agents/agt-1/capability-grant/draft"
     ]);
-    expect(JSON.parse(harness.requests[0]?.body ?? "{}")).toMatchObject({ agent_type: "company", owner_user_id: "user-1" });
-    expect(JSON.parse(harness.requests[1]?.body ?? "{}")).toMatchObject({ data_policy_ids: ["policy-1"], version: 0 });
+    expect(JSON.parse(harness.requests[1]?.body ?? "{}")).toMatchObject({ agent_type: "company", owner_user_id: "user-1" });
+    expect(JSON.parse(harness.requests[2]?.body ?? "{}")).toMatchObject({ audience: "orders", data_policy_ids: ["policy-1"], version: 0 });
   });
 
   it("validates an incomplete Capability selection before creating the Agent", async () => {
@@ -130,6 +131,39 @@ describe("management command boundaries", () => {
     expect(harness.requests).toHaveLength(0);
   });
 
+  it("keeps the explicit audience compatibility override", async () => {
+    const harness = await fixture();
+    await harness.run([
+      "agents", "create", "--identifier", "orders-agent", "--display-name", "Orders",
+      "--application-id", "app-1", "--owner-user-id", "user-1",
+      "--audience", "orders", "--permission-id", "policy-1"
+    ]);
+    expect(harness.requests.map(request => request.path)).toEqual([
+      "/api/v3/agent-identity/admin/agents",
+      "/api/v3/agent-identity/admin/agents/agt-1/capability-grant/draft"
+    ]);
+  });
+
+  it("stops before Agent creation when the Application identifier is absent", async () => {
+    const harness = await createHarness({ handler(request, response) {
+      response.setHeader("Content-Type", "application/json");
+      expect(request.path).toBe("/api/v3/get-application-simple-info?appId=app-1");
+      response.setHeader("X-Request-Id", "req-application");
+      response.end('{"data":{"appId":"app-1"}}');
+    } });
+    active.push(harness);
+    await expect(harness.run([
+      "agents", "create", "--identifier", "orders-agent", "--display-name", "Orders",
+      "--application-id", "app-1", "--owner-user-id", "user-1",
+      "--permission-id", "policy-1"
+    ])).rejects.toMatchObject({
+      code: "INVALID_SERVER_RESPONSE",
+      message: "Application response does not include appIdentifier",
+      requestId: "req-application"
+    });
+    expect(harness.requests).toHaveLength(1);
+  });
+
   it("loads Agent YAML and requires an explicit permission merge policy", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-agent-file-"));
     directories.push(directory);
@@ -139,7 +173,6 @@ describe("management command boundaries", () => {
       "display_name: File Agent",
       "application_id: app-1",
       "owner_user_id: user-1",
-      "audience: orders",
       "permission_ids:",
       "  - policy-file"
     ].join("\n"), "utf8");
@@ -163,6 +196,10 @@ describe("management command boundaries", () => {
     const harness = await createHarness({
       handler(request, response) {
         response.setHeader("Content-Type", "application/json");
+        if (request.path === "/api/v3/get-application-simple-info?appId=app-1") {
+          response.end('{"data":{"appId":"app-1","appIdentifier":"orders"}}');
+          return;
+        }
         if (request.path.endsWith("/agents") && request.method === "POST") {
           response.end('{"data":{"id":"agt-partial","version":1}}');
           return;
@@ -175,14 +212,32 @@ describe("management command boundaries", () => {
     await expect(harness.run([
       "agents", "create", "--identifier", "orders-agent", "--display-name", "Orders",
       "--application-id", "app-1", "--owner-user-id", "user-1",
-      "--audience", "orders", "--permission-id", "policy-1"
+      "--permission-id", "policy-1"
     ])).rejects.toMatchObject({
       code: "PARTIAL_AGENT_CREATE",
       remediation: {
         agent_id: "agt-partial",
         cause_code: "CAPABILITY_UNAVAILABLE",
-        next_command: expect.stringContaining("agents capability update --agent-id agt-partial")
+        next_command: "genauth-agent agents capability update --agent-id agt-partial --permission-id <policy-id> --version 0"
       }
+    });
+  });
+
+  it("derives Capability update audience from the Agent Application", async () => {
+    const harness = await fixture();
+    await harness.run([
+      "agents", "capability", "update", "--agent-id", "agt-1",
+      "--permission-id", "policy-1", "--version", "1"
+    ]);
+    expect(harness.requests.map(request => request.path)).toEqual([
+      "/api/v3/agent-identity/admin/agents/agt-1",
+      "/api/v3/get-application-simple-info?appId=app-1",
+      "/api/v3/agent-identity/admin/agents/agt-1/capability-grant/draft"
+    ]);
+    expect(JSON.parse(harness.requests[2]?.body ?? "{}")).toMatchObject({
+      audience: "orders",
+      data_policy_ids: ["policy-1"],
+      version: 1
     });
   });
 
@@ -410,6 +465,10 @@ function handleFixture(request: RecordedRequest, response: import("node:http").S
   response.setHeader("X-Request-Id", "req-management");
   if (request.path === "/api/v3/agent-identity/admin/user-pools") {
     response.end('{"data":{"list":[{"id":"pool-1"},{"id":"pool-2"}]}}');
+  } else if (request.path === "/api/v3/get-application-simple-info?appId=app-1") {
+    response.end('{"data":{"appId":"app-1","appIdentifier":"orders","clientCredentialsEnabled":true}}');
+  } else if (request.path.endsWith("/agents/agt-1") && request.method === "GET") {
+    response.end('{"data":{"id":"agt-1","application_id":"app-1","version":1}}');
   } else if (request.path.endsWith("/agents") && request.method === "POST") {
     response.end('{"data":{"id":"agt-1","version":1}}');
   } else if (request.path.endsWith("/authorization-requests") && request.method === "POST") {

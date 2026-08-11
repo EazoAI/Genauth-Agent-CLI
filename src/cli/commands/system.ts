@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import type { Command } from "commander";
 import type { AppContext } from "../context.js";
 import { COMMAND_CONTRACT, type CommandRegistry } from "../manifest.js";
+import { decodeManageableUserPools, selectedUserPoolFields } from "../user-pools.js";
 
 const packageManifest = createRequire(import.meta.url)("../../../package.json") as { version?: unknown };
 if (typeof packageManifest.version !== "string") {
@@ -18,10 +19,17 @@ export function registerSystemCommands(parent: Command, registry: CommandRegistr
       path: `${app.managementPrefix(current.profile)}/agents`,
       query: { page_size: 1 }
     });
+    const poolsResult = current.profile.login_type === "tenant_admin"
+      ? await app.call(global, { method: "GET", path: "/api/v3/agent-identity/admin/user-pools" })
+      : undefined;
+    const selectedPool = poolsResult === undefined
+      ? undefined
+      : decodeManageableUserPools(poolsResult.data)
+        .find(pool => pool.id === current.profile.selected_user_pool_id);
     app.success(global, "DoctorReport", {
       profile: current.name,
       endpoint: current.profile.endpoint,
-      selected_user_pool_id: current.profile.selected_user_pool_id,
+      ...selectedUserPoolFields(current.profile.selected_user_pool_id, selectedPool),
       secret_store: "available",
       genauth: true
     }, result.requestId);

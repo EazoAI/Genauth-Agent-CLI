@@ -14,6 +14,7 @@ describe("commands/v2 executable journey coverage", () => {
       ["profiles", "list"],
       ["profiles", "use", "--name", "test"],
       ["auth", "status"],
+      ["auth", "list-user-pools"],
       ["auth", "select-user-pool", "--user-pool-id", "pool-1"],
       ["permissions", "list", "--page-size", "5", "--audience", "orders", "--action", "read", "--keyword", "invoice"],
       ["permissions", "get", "--permission-id", "policy-1"],

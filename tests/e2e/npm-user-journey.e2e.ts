@@ -89,13 +89,27 @@ describe("npm-installed complete Agent Identity user journey", () => {
         login_type: loginType,
         selected_user_pool_id: "pool-1"
       });
+      if (loginType === "tenant_admin") {
+        expect(status.envelope?.data).toMatchObject({
+          selected_user_pool_name: "Development",
+          selected_user_pool_domain: "dev"
+        });
+      }
       expect(JSON.stringify(status.envelope)).toContain(subject);
     }
 
-    const doctor = await invoke("agent-owner", ["doctor"]);
-    expect(doctor.envelope?.kind).toBe("DoctorReport");
+    const pools = await invoke("agent-owner", ["auth", "list-user-pools"]);
+    expect(pools.envelope?.data).toMatchObject({
+      list: [{ id: "pool-1", name: "Development", domain: "dev", selected: true }]
+    });
 
-    const permissions = await invoke("agent-owner", ["permissions", "list", "--audience", "orders"]);
+    const doctor = await invoke("agent-owner", ["doctor"]);
+    expect(doctor.envelope).toMatchObject({
+      kind: "DoctorReport",
+      data: { selected_user_pool_name: "Development", selected_user_pool_domain: "dev" }
+    });
+
+    const permissions = await invoke("agent-owner", ["permissions", "list"]);
     expect(unwrap(permissions.envelope?.data)).toMatchObject({ list: [{ id: "policy-orders-read" }] });
     const permission = await invoke("agent-owner", ["permissions", "get", "--permission-id", "policy-orders-read"]);
     expect(unwrap(permission.envelope?.data)).toMatchObject({ id: "policy-orders-read", audience: "orders" });
@@ -107,7 +121,6 @@ describe("npm-installed complete Agent Identity user journey", () => {
       "--description", "Read approved orders",
       "--owner-user-id", "owner-1",
       "--application-id", "app-orders",
-      "--audience", "orders",
       "--permission-id", "policy-orders-read"
     ]);
     expect(created.envelope?.kind).toBe("AgentWithCapabilityDraft");
@@ -319,11 +332,18 @@ function handleJourneyRequest(state: JourneyState, request: http.IncomingMessage
     redirect_uri_pattern: "http://127.0.0.1:*/callback"
   } });
   if (pathname === "/oidc/token/revocation") return send(response, 200, undefined);
-  if (pathname === "/api/v3/agent-identity/admin/user-pools") return send(response, 200, { data: { list: [{ id: "pool-1" }] } });
+  if (pathname === "/api/v3/agent-identity/admin/user-pools") {
+    return send(response, 200, { data: { list: [{ id: "pool-1", name: "Development", domain: "dev", role: "OWNER" }] } });
+  }
   if (pathname === "/api/v3/agent-identity/admin/context") return send(response, 200, { data: identityFor(bearer) });
   if (pathname === "/api/v3/agent-identity/me" && method === "GET") return send(response, 200, { data: identityFor(bearer) });
   if (pathname.endsWith("/permission-catalog") && method === "GET") return send(response, 200, { data: { list: [{ id: "policy-orders-read", audience: "orders", action: "read" }] } });
   if (pathname === "/api/v3/agent-identity/permission-catalog/policy-orders-read") return send(response, 200, { data: { id: "policy-orders-read", audience: "orders", action: "read" } });
+  if (pathname === "/api/v3/get-application-simple-info") return send(response, 200, { data: {
+    appId: "app-orders",
+    appIdentifier: "orders",
+    clientCredentialsEnabled: true
+  } });
 
   if (pathname === "/api/v3/agent-identity/admin/agents" && method === "POST") {
     if (json.agent_type !== "company" || json.owner_user_id !== "owner-1") return sendError(response, 422, "INVALID_AGENT", "invalid company Agent");

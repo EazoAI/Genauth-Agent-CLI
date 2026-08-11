@@ -4,7 +4,7 @@ import { durationSeconds } from "../../core/duration.js";
 import { idempotencyHeaders } from "../../core/idempotency.js";
 import { isRecord, permissionIds, readObjectFile, stringList, uniqueStrings } from "../../core/input.js";
 import { promptIfEmpty } from "../../core/prompt.js";
-import type { AppContext } from "../context.js";
+import type { AppContext, GlobalOptions } from "../context.js";
 import { decodeResponseData } from "../context.js";
 import type { CommandRegistry, OptionContract } from "../manifest.js";
 import { compactQuery, confirmation, integerOption, requiredText, stringOptions, text } from "./common.js";
@@ -24,8 +24,8 @@ export function registerAgentCommands(parent: Command, registry: CommandRegistry
       { flags: "--description <description>", description: "Agent description" },
       { flags: "--owner-user-id <id>", description: "Agent owner user ID" },
       { flags: "--application-id <id>", description: "GenAuth application ID" },
-      { flags: "--audience <audience>", description: "ResourceServer audience" },
-      { flags: "--permission-id <id>", description: "DataPolicy ID (repeatable)", collect: true },
+      { flags: "--audience <audience>", description: "compatibility override for the Application-derived audience", hidden: true },
+      { flags: "--permission-id <id>", description: "DataPolicy ID (repeatable); audience is inferred from Application", collect: true },
       { flags: "--file <path>", description: "Agent YAML or JSON input file" },
       { flags: "--replace-permissions", description: "replace file permissions with command-line values" },
       { flags: "--append-permission", description: "append command-line permissions to file values" }
@@ -97,8 +97,8 @@ export function registerAgentCommands(parent: Command, registry: CommandRegistry
     description: "Create or update an Agent Capability draft",
     options: [
       agentIdOption,
-      { flags: "--audience <audience>", description: "ResourceServer audience" },
-      { flags: "--permission-id <id>", description: "DataPolicy ID (repeatable)", collect: true },
+      { flags: "--audience <audience>", description: "compatibility override for the Application-derived audience", hidden: true },
+      { flags: "--permission-id <id>", description: "DataPolicy ID (repeatable); audience is inferred from the Agent Application", collect: true },
       { flags: "--version <number>", description: "expected draft record version", defaultValue: "0" }
     ]
   }, async (options, command) => {
@@ -108,11 +108,25 @@ export function registerAgentCommands(parent: Command, registry: CommandRegistry
     if (policies.length === 0) throw invalid("at least one permission-id is required");
     const version = integerOption(options.version, "version", 0);
     if (version < 0) throw invalid("version cannot be negative");
+    const agentId = requiredText(options.agentId, "agent-id");
+    let audience = text(options.audience);
+    if (audience === "") {
+      const agentResult = await app.call(global, {
+        method: "GET",
+        path: `${app.managementPrefix(current.profile)}/agents/${escape(agentId)}`
+      });
+      const agent = decodeResponseData<Record<string, unknown>>(agentResult.data);
+      const applicationId = firstString(agent, "application_id", "applicationId");
+      if (applicationId === "") {
+        throw invalidServerResponse("Agent response does not include application_id", agentResult.requestId);
+      }
+      audience = await resolveApplicationAudience(app, global, applicationId);
+    }
     await app.simple(global, {
       method: "PUT",
-      path: `${app.managementPrefix(current.profile)}/agents/${escape(requiredText(options.agentId, "agent-id"))}/capability-grant/draft`,
+      path: `${app.managementPrefix(current.profile)}/agents/${escape(agentId)}/capability-grant/draft`,
       body: {
-        audience: requiredText(options.audience, "audience"),
+        audience,
         data_policy_ids: policies,
         permission_snapshot: {},
         version
@@ -247,8 +261,11 @@ async function createAgent(app: AppContext, options: OptionValues, command: Comm
   requiredText(displayName, "display-name");
   requiredText(applicationId, "application-id");
   if (current.profile.login_type === "tenant_admin") requiredText(ownerUserId, "owner-user-id");
-  if ((audience === "") !== (policies.length === 0)) {
-    throw invalid("audience and at least one permission-id are required together");
+  if (audience !== "" && policies.length === 0) {
+    throw invalid("audience cannot be used without at least one permission-id");
+  }
+  if (audience === "" && policies.length > 0) {
+    audience = await resolveApplicationAudience(app, global, applicationId);
   }
   const body: Record<string, unknown> = {
     identifier,
@@ -288,7 +305,7 @@ async function createAgent(app: AppContext, options: OptionValues, command: Comm
         remediation: {
           agent_id: agent.id,
           cause_code: cause.code,
-          next_command: `genauth-agent agents capability update --agent-id ${agent.id} --audience <audience> --permission-id <policy-id> --version 0`
+          next_command: `genauth-agent agents capability update --agent-id ${agent.id} --permission-id <policy-id> --version 0`
         }
       });
     }
@@ -378,6 +395,28 @@ function firstString(value: Record<string, unknown>, ...keys: string[]): string 
     if (typeof item === "string" && item.trim() !== "") return item.trim();
   }
   return "";
+}
+
+async function resolveApplicationAudience(
+  app: AppContext,
+  global: GlobalOptions,
+  applicationId: string
+): Promise<string> {
+  const result = await app.call(global, {
+    method: "GET",
+    path: "/api/v3/get-application-simple-info",
+    query: { appId: applicationId }
+  });
+  const application = decodeResponseData<Record<string, unknown>>(result.data);
+  const audience = firstString(application, "appIdentifier", "app_identifier", "identifier");
+  if (audience === "") {
+    throw invalidServerResponse("Application response does not include appIdentifier", result.requestId);
+  }
+  return audience;
+}
+
+function invalidServerResponse(message: string, requestId: string): CliError {
+  return new CliError({ code: "INVALID_SERVER_RESPONSE", message, exitCode: 9, requestId });
 }
 
 function positiveDuration(value: unknown, name: string): number {

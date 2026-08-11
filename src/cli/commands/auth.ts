@@ -8,8 +8,14 @@ import { ApiClient } from "../../http/client.js";
 import { InvalidCaFileError, InvalidProxyError } from "../../http/errors.js";
 import { validateProfileName, type Profile } from "../../storage/profile-store.js";
 import type { AppContext, GlobalOptions } from "../context.js";
-import { decodeResponseData, validateCliEndpoint } from "../context.js";
+import { validateCliEndpoint } from "../context.js";
 import type { CommandRegistry } from "../manifest.js";
+import {
+  decodeManageableUserPools,
+  selectedUserPoolFields,
+  userPoolLabel,
+  type ManageableUserPool
+} from "../user-pools.js";
 
 export function registerAuthCommands(parent: Command, registry: CommandRegistry, app: AppContext): void {
   const auth = registry.group(parent, "auth", "Authenticate and select the current user pool");
@@ -115,9 +121,28 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
       profile: profileName,
       login_type: profile.login_type,
       subject_id: profile.subject_id ?? "",
-      selected_user_pool_id: profile.selected_user_pool_id,
+      ...selectedUserPoolFields(profile.selected_user_pool_id, selected.userPool),
       secret_ref: secretRef
     }, requestId);
+  });
+
+  registry.leaf(auth, {
+    path: "auth list-user-pools",
+    description: "List manageable user pools with names and IDs",
+    options: []
+  }, async (_options, command) => {
+    const global = app.global(command);
+    const loaded = await app.loadClient(global);
+    if (loaded.profile.login_type !== "tenant_admin") {
+      throw new CliError({ code: "ADMIN_LOGIN_REQUIRED", message: "listing manageable user pools requires a tenant administrator profile", exitCode: 2 });
+    }
+    const result = await app.call(global, { method: "GET", path: "/api/v3/agent-identity/admin/user-pools" });
+    const pools = decodeManageableUserPools(result.data);
+    app.success(global, "UserPoolList", {
+      selected_user_pool_id: loaded.profile.selected_user_pool_id,
+      list: pools.map(pool => ({ ...pool, selected: pool.id === loaded.profile.selected_user_pool_id })),
+      total_count: pools.length
+    }, result.requestId);
   });
 
   registry.leaf(auth, {
@@ -131,12 +156,18 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
       ? "/api/v3/agent-identity/admin/context"
       : "/api/v3/agent-identity/me";
     const result = await app.call(global, { method: "GET", path });
+    let selectedPool: ManageableUserPool | undefined;
+    if (current.profile.login_type === "tenant_admin") {
+      const poolsResult = await app.call(global, { method: "GET", path: "/api/v3/agent-identity/admin/user-pools" });
+      selectedPool = decodeManageableUserPools(poolsResult.data)
+        .find(pool => pool.id === current.profile.selected_user_pool_id);
+    }
     app.success(global, "AuthStatus", {
       authenticated: true,
       profile: current.name,
       login_type: current.profile.login_type,
       subject_id: current.profile.subject_id ?? "",
-      selected_user_pool_id: current.profile.selected_user_pool_id,
+      ...selectedUserPoolFields(current.profile.selected_user_pool_id, selectedPool),
       server_context: result.data
     }, result.requestId);
   });
@@ -219,7 +250,10 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
     const config = await app.profiles.load();
     config.profiles[loaded.name] = { ...loaded.profile, selected_user_pool_id: selected.userPoolId };
     await app.profiles.save(config);
-    app.success(global, "UserPoolContext", { profile: loaded.name, selected_user_pool_id: selected.userPoolId }, selected.requestId);
+    app.success(global, "UserPoolContext", {
+      profile: loaded.name,
+      ...selectedUserPoolFields(selected.userPoolId, selected.userPool)
+    }, selected.requestId);
   });
 }
 
@@ -228,7 +262,7 @@ async function selectAdminUserPool(
   accessToken: string,
   requested: string,
   transport: ApiClient
-): Promise<{ userPoolId: string; requestId: string }> {
+): Promise<{ userPoolId: string; requestId: string; userPool: ManageableUserPool }> {
   const client = await ApiClient.create({
     endpoint: transport.endpoint,
     sessionToken: accessToken,
@@ -237,25 +271,47 @@ async function selectAdminUserPool(
     dispatcher: transport.dispatcher
   });
   const result = await client.do({ method: "GET", path: "/api/v3/agent-identity/admin/user-pools" });
-  const data = decodeResponseData<{ list?: Array<{ id?: string }> }>(result.data);
-  const ids = (data.list ?? []).flatMap(item => item.id ? [item.id] : []);
+  const pools = decodeManageableUserPools(result.data);
   if (requested !== "") {
-    if (!ids.includes(requested)) {
-      throw new CliError({ code: "USER_POOL_NOT_MANAGEABLE", message: "the selected user pool is not manageable by this administrator", exitCode: 2, requestId: result.requestId });
+    const selected = pools.find(pool => pool.id === requested);
+    if (selected === undefined) {
+      throw new CliError({
+        code: "USER_POOL_NOT_MANAGEABLE",
+        message: pools.length === 0
+          ? "the selected user pool is not manageable by this administrator"
+          : `the selected user pool is not manageable by this administrator; choose one: ${pools.map(userPoolLabel).join(", ")}`,
+        exitCode: 2,
+        requestId: result.requestId,
+        ...(pools.length === 0 ? {} : {
+          remediation: {
+            action: "retry_with_user_pool",
+            option: "--user-pool-id",
+            manageable_user_pools: pools
+          }
+        })
+      });
     }
-    return { userPoolId: requested, requestId: result.requestId };
+    return { userPoolId: requested, requestId: result.requestId, userPool: selected };
   }
-  if (ids.length === 1) {
-    return { userPoolId: ids[0] ?? "", requestId: result.requestId };
+  if (pools.length === 1) {
+    const selected = pools[0];
+    if (selected !== undefined) {
+      return { userPoolId: selected.id, requestId: result.requestId, userPool: selected };
+    }
   }
-  if (ids.length === 0) {
+  if (pools.length === 0) {
     throw new CliError({ code: "NO_MANAGEABLE_USER_POOL", message: "this administrator has no manageable user pool", exitCode: 2, requestId: result.requestId });
   }
   throw new CliError({
     code: "USER_POOL_SELECTION_REQUIRED",
-    message: `multiple manageable user pools found; retry with --user-pool-id (${ids.join(", ")})`,
+    message: `multiple manageable user pools found; choose one and retry with --user-pool-id: ${pools.map(userPoolLabel).join(", ")}`,
     exitCode: 2,
-    requestId: result.requestId
+    requestId: result.requestId,
+    remediation: {
+      action: "retry_with_user_pool",
+      option: "--user-pool-id",
+      manageable_user_pools: pools
+    }
   });
 }
 
