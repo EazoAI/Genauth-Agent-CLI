@@ -4,6 +4,7 @@ import { tokenSubject } from "../../core/jwt.js";
 import { CliError } from "../../core/errors.js";
 import { readLimitedStdin } from "../../core/input.js";
 import { ApiClient } from "../../http/client.js";
+import { InvalidCaFileError, InvalidProxyError } from "../../http/errors.js";
 import { validateProfileName, type Profile } from "../../storage/profile-store.js";
 import type { AppContext, GlobalOptions } from "../context.js";
 import { decodeResponseData, validateCliEndpoint } from "../context.js";
@@ -42,13 +43,20 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
     await app.probeSecretStore();
     const clientId = text(options.clientId);
     const secretRef = `keychain://agent-identity/session/${profileName}`;
-    const transport = await ApiClient.create({
-      endpoint: global.endpoint,
-      timeoutMs: global.timeoutMs,
-      proxyUrl: global.proxy,
-      caFile: global.caFile,
-      ...(app.dispatcher === undefined ? {} : { dispatcher: app.dispatcher })
-    });
+    let transport: ApiClient;
+    try {
+      transport = await ApiClient.create({
+        endpoint: global.endpoint,
+        timeoutMs: global.timeoutMs,
+        proxyUrl: global.proxy,
+        caFile: global.caFile,
+        ...(app.dispatcher === undefined ? {} : { dispatcher: app.dispatcher })
+      });
+    } catch (error) {
+      if (error instanceof InvalidCaFileError) throw new CliError({ code: "INVALID_CA_FILE", message: error.message, exitCode: 2 });
+      if (error instanceof InvalidProxyError) throw new CliError({ code: "INVALID_PROXY", message: error.message, exitCode: 2 });
+      throw error;
+    }
     let token: OAuthToken;
     if (options.sessionTokenStdin) {
       const value = await readLimitedStdin(app.io.input);

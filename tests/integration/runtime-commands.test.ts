@@ -24,12 +24,48 @@ describe("runtime command journey", () => {
     ]);
   });
 
+  it.each(["json", "yaml"])("requires a second acknowledgement before showing a Credential secret in %s", async output => {
+    const harness = await fixtureHarness();
+    await expect(harness.run([
+      "--output", output, "credentials", "create", "--agent-id", "agt-1", "--show-secret"
+    ])).rejects.toMatchObject({ code: "SECRET_OUTPUT_ACKNOWLEDGEMENT_REQUIRED" });
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  it("revokes a newly delivered Credential if Keychain persistence fails", async () => {
+    const harness = await fixtureHarness();
+    const originalSet = harness.secrets.set.bind(harness.secrets);
+    harness.secrets.set = async (reference, value) => {
+      if (reference.includes("/credential/")) throw new Error("keychain unavailable");
+      await originalSet(reference, value);
+    };
+    await expect(harness.run(["credentials", "create", "--agent-id", "agt-1"]))
+      .rejects.toMatchObject({ code: "SECRET_STORE_UNAVAILABLE" });
+    expect(harness.requests.map(request => request.path)).toEqual([
+      "/api/v3/agent-identity/admin/agents/agt-1/credentials",
+      "/api/v3/agent-identity/admin/credential-deliveries/delivery-1/consume",
+      "/api/v3/agent-identity/admin/agents/agt-1/credentials/cred-1/revoke"
+    ]);
+  });
+
   it("removes a local Credential only after successful remote revoke", async () => {
     const harness = await fixtureHarness();
     await harness.secrets.set("keychain://agent-identity/credential/cred-1", "stored");
     const result = await harness.run(["credentials", "revoke", "--agent-id", "agt-1", "--credential-id", "cred-1", "--yes"]);
     expect(JSON.parse(result.stdout).kind).toBe("Credential");
     await expect(harness.secrets.get("keychain://agent-identity/credential/cred-1")).rejects.toThrow();
+  });
+
+  it("reports a warning if remote Credential revoke succeeds but local cleanup fails", async () => {
+    const harness = await fixtureHarness();
+    await harness.secrets.set("keychain://agent-identity/credential/cred-1", "stored");
+    harness.secrets.delete = async reference => {
+      if (reference.includes("/credential/")) throw new Error("keychain unavailable");
+    };
+    const result = await harness.run(["credentials", "revoke", "--agent-id", "agt-1", "--credential-id", "cred-1", "--yes"]);
+    expect(JSON.parse(result.stdout).warnings).toEqual([
+      "credential was revoked, but its local OS secret-store entry could not be removed"
+    ]);
   });
 
   it("issues a Token but omits access_token by default", async () => {
@@ -87,6 +123,24 @@ describe("runtime command journey", () => {
     const request = harness.requests.at(-1);
     expect(request?.path).toBe("/api/v3/agent-identity/admin/agent-user-grants/grant-1/revoke");
     expect(JSON.parse(request?.body ?? "{}")).toEqual({ version: 2, reason: "finished" });
+  });
+
+  it("cleans one-time authorization values after exchange and warns on partial cleanup", async () => {
+    const harness = await fixtureHarness();
+    const values: Array<[string, string]> = [["pkce", "verifier"], ["code", "code"], ["callback", "http://127.0.0.1/callback"], ["url", "https://example.test/authorize"]];
+    for (const [suffix, value] of values) {
+      await harness.secrets.set(`keychain://agent-identity/authorization/auth-1/${suffix}`, value);
+    }
+    const originalDelete = harness.secrets.delete.bind(harness.secrets);
+    harness.secrets.delete = async reference => {
+      if (reference.endsWith("/code")) throw new Error("keychain unavailable");
+      await originalDelete(reference);
+    };
+    const result = await harness.run(["authorizations", "exchange", "--authorization-id", "auth-1"]);
+    expect(JSON.parse(result.stdout).warnings).toEqual([
+      "authorization exchange succeeded, but one or more one-time values could not be removed from the OS secret store"
+    ]);
+    expect(JSON.parse(harness.requests.at(-1)?.body ?? "{}")).toEqual({ code_verifier: "verifier", authorization_code: "code" });
   });
 
   it("does not let a user request silent authorization or another user ID", async () => {

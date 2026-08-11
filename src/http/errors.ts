@@ -19,3 +19,17 @@ export class ApiError extends Error {
     this.retryAfterMs = options.retryAfterMs ?? 0;
   }
 }
+
+export class InvalidCaFileError extends Error {
+  constructor(message = "the configured CA file is invalid", options?: ErrorOptions) {
+    super(message, options);
+    this.name = "InvalidCaFileError";
+  }
+}
+
+export class InvalidProxyError extends Error {
+  constructor(message = "proxy must be an HTTP(S) origin without credentials, path, query, or fragment") {
+    super(message);
+    this.name = "InvalidProxyError";
+  }
+}

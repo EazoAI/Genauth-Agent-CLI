@@ -16,6 +16,80 @@ describe("management command boundaries", () => {
     expect(harness.requests[0]?.headers["x-authing-userpool-id"]).toBe("pool-1");
   });
 
+  it.each([
+    ["tenant_admin", "/api/v3/agent-identity/admin/context"],
+    ["user", "/api/v3/agent-identity/me"]
+  ] as const)("routes %s auth status through the exact identity context path", async (loginType, path) => {
+    const harness = await fixture(loginType);
+    await harness.run(["auth", "status"]);
+    expect(harness.requests[0]?.path).toBe(path);
+  });
+
+  it("refreshes an expired session once and retries the original request", async () => {
+    let agentCalls = 0;
+    const harness = await createHarness({
+      handler(request, response) {
+        response.setHeader("Content-Type", "application/json");
+        if (request.path === "/oidc/token") {
+          expect(request.body).toContain("grant_type=refresh_token");
+          response.end('{"access_token":"fresh-token","refresh_token":"fresh-refresh"}');
+          return;
+        }
+        agentCalls += 1;
+        if (agentCalls === 1) {
+          response.statusCode = 401;
+          response.end('{"error":{"code":"SESSION_EXPIRED","message":"expired"}}');
+          return;
+        }
+        response.end('{"data":{"list":[]}}');
+      }
+    });
+    active.push(harness);
+    await harness.secrets.set("keychain://agent-identity/session/test", JSON.stringify({
+      access_token: "expired-token",
+      refresh_token: "refresh-token"
+    }));
+    await harness.run(["agents", "list"]);
+    expect(harness.requests.map(request => request.path)).toEqual([
+      "/api/v3/agent-identity/admin/agents",
+      "/oidc/token",
+      "/api/v3/agent-identity/admin/agents"
+    ]);
+    expect(harness.requests[0]?.headers.authorization).toBe("Bearer expired-token");
+    expect(harness.requests[2]?.headers.authorization).toBe("Bearer fresh-token");
+    expect(await harness.secrets.get("keychain://agent-identity/session/test")).toContain("fresh-refresh");
+  });
+
+  it("keeps the local login intact when remote logout revocation fails", async () => {
+    const harness = await createHarness({
+      handler(_request, response) {
+        response.statusCode = 503;
+        response.end("unavailable");
+      }
+    });
+    active.push(harness);
+    await expect(harness.run(["auth", "logout"])).rejects.toMatchObject({ code: "LOGOUT_REVOKE_FAILED" });
+    expect((await harness.profileStore.load()).profiles.test).toBeDefined();
+    await expect(harness.secrets.get("keychain://agent-identity/session/test")).resolves.toContain("human-token");
+  });
+
+  it("warns only after remote logout and local profile removal when Keychain cleanup fails", async () => {
+    const harness = await createHarness({
+      handler(request, response) {
+        expect(request.path).toBe("/oidc/token/revocation");
+        response.statusCode = 200;
+        response.end("");
+      }
+    });
+    active.push(harness);
+    harness.secrets.delete = async () => { throw new Error("keychain unavailable"); };
+    const result = await harness.run(["auth", "logout"]);
+    expect(JSON.parse(result.stdout).warnings).toEqual([
+      "remote session was revoked and the local profile was removed, but its OS secret-store entry could not be removed"
+    ]);
+    expect((await harness.profileStore.load()).profiles.test).toBeUndefined();
+  });
+
   it("requires an owner when an administrator creates an Agent", async () => {
     const harness = await fixture();
     await expect(harness.run([
@@ -38,6 +112,33 @@ describe("management command boundaries", () => {
     ]);
     expect(JSON.parse(harness.requests[0]?.body ?? "{}")).toMatchObject({ agent_type: "company", owner_user_id: "user-1" });
     expect(JSON.parse(harness.requests[1]?.body ?? "{}")).toMatchObject({ data_policy_ids: ["policy-1"], version: 0 });
+  });
+
+  it("returns a resumable remediation when Agent creation succeeds but Capability draft creation fails", async () => {
+    const harness = await createHarness({
+      handler(request, response) {
+        response.setHeader("Content-Type", "application/json");
+        if (request.path.endsWith("/agents") && request.method === "POST") {
+          response.end('{"data":{"id":"agt-partial","version":1}}');
+          return;
+        }
+        response.statusCode = 503;
+        response.end('{"error":{"code":"CAPABILITY_UNAVAILABLE","message":"try later"}}');
+      }
+    });
+    active.push(harness);
+    await expect(harness.run([
+      "agents", "create", "--identifier", "orders-agent", "--display-name", "Orders",
+      "--application-id", "app-1", "--owner-user-id", "user-1",
+      "--audience", "orders", "--permission-id", "policy-1"
+    ])).rejects.toMatchObject({
+      code: "PARTIAL_AGENT_CREATE",
+      remediation: {
+        agent_id: "agt-partial",
+        cause_code: "CAPABILITY_UNAVAILABLE",
+        next_command: expect.stringContaining("agents capability update --agent-id agt-partial")
+      }
+    });
   });
 
   it("submits Capability through the canonical nested command", async () => {
@@ -81,6 +182,17 @@ describe("management command boundaries", () => {
     await expect(harness.run(["approvals", "approve", "--approval-id", "apr-1"])).rejects.toMatchObject({ code: "CONFIRMATION_REQUIRED" });
     await harness.run(["approvals", "approve", "--approval-id", "apr-1", "--version", "2", "--reason", "reviewed", "--yes"]);
     expect(harness.requests[0]?.path).toBe("/api/v3/agent-identity/admin/approvals/apr-1/approve");
+  });
+
+  it("keeps correlation ID separate from approval ID", async () => {
+    const harness = await fixture();
+    const correlationId = "5ae1768e-65d6-4e4f-8402-e170d719f09c";
+    await harness.run([
+      "--correlation-id", correlationId,
+      "approvals", "approve", "--approval-id", "apr-1", "--version", "2", "--reason", "reviewed", "--yes"
+    ]);
+    expect(harness.requests[0]?.path).toBe("/api/v3/agent-identity/admin/approvals/apr-1/approve");
+    expect(harness.requests[0]?.headers["x-request-id"]).toBe(correlationId);
   });
 
   it("validates permissions with an idempotency key", async () => {
@@ -139,6 +251,24 @@ describe("management command boundaries", () => {
     expect(await harness.secrets.get(envelope.data.pkce_ref)).not.toBe("");
   });
 
+  it("cancels an explicit authorization if local PKCE persistence fails", async () => {
+    const harness = await fixture("user");
+    const originalSet = harness.secrets.set.bind(harness.secrets);
+    harness.secrets.set = async (reference, value) => {
+      if (reference.endsWith("/callback")) throw new Error("keychain unavailable");
+      await originalSet(reference, value);
+    };
+    await expect(harness.run([
+      "authorizations", "create", "--agent-id", "agt-1", "--audience", "orders",
+      "--permission-id", "policy-1", "--mode", "explicit"
+    ])).rejects.toMatchObject({ code: "SECRET_STORE_UNAVAILABLE" });
+    expect(harness.requests.map(request => request.path)).toEqual([
+      "/api/v3/agent-identity/me/agents/agt-1/authorization-requests",
+      "/api/v3/agent-identity/me/authorization-requests/auth-1/cancel"
+    ]);
+    await expect(harness.secrets.get("keychain://agent-identity/authorization/auth-1/pkce")).rejects.toThrow();
+  });
+
   it("records user consent without displaying its code by default", async () => {
     const harness = await fixture("user");
     const result = await harness.run(["authorizations", "consent", "--authorization-id", "auth-1"]);
@@ -148,6 +278,17 @@ describe("management command boundaries", () => {
       code_ref: "keychain://agent-identity/authorization/auth-1/code"
     });
     expect(result.stdout).not.toContain("one-time-code");
+  });
+
+  it("probes the secret store before mutating consent state", async () => {
+    const harness = await fixture("user");
+    harness.secrets.set = async reference => {
+      if (reference.includes("/probe/")) throw new Error("keychain unavailable");
+      throw new Error("unexpected secret write");
+    };
+    await expect(harness.run(["authorizations", "consent", "--authorization-id", "auth-1"]))
+      .rejects.toMatchObject({ code: "SECRET_STORE_UNAVAILABLE" });
+    expect(harness.requests).toHaveLength(0);
   });
 
   it("routes user grant listing through the user BFF", async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Command } from "commander";
 import { ApiClient, decodeData } from "../http/client.js";
 import type { Dispatcher } from "undici";
-import { ApiError } from "../http/errors.js";
+import { ApiError, InvalidCaFileError, InvalidProxyError } from "../http/errors.js";
 import { OAuthClient, type OAuthToken } from "../auth/oauth.js";
 import { CliError } from "../core/errors.js";
 import { parseDurationMs } from "../core/duration.js";
@@ -121,16 +121,23 @@ export class AppContext {
       validateCliEndpoint(global.endpoint, global.allowInsecureLocalhost);
       profile.endpoint = global.endpoint;
     }
-    const client = await ApiClient.create({
-      endpoint: profile.endpoint,
-      sessionToken: token.access_token,
-      userPoolId: profile.selected_user_pool_id,
-      requestId: global.requestId,
-      timeoutMs: global.timeoutMs,
-      proxyUrl: global.proxy,
-      caFile: global.caFile,
-      ...(this.dispatcher === undefined ? {} : { dispatcher: this.dispatcher })
-    });
+    let client: ApiClient;
+    try {
+      client = await ApiClient.create({
+        endpoint: profile.endpoint,
+        sessionToken: token.access_token,
+        userPoolId: profile.selected_user_pool_id,
+        requestId: global.requestId,
+        timeoutMs: global.timeoutMs,
+        proxyUrl: global.proxy,
+        caFile: global.caFile,
+        ...(this.dispatcher === undefined ? {} : { dispatcher: this.dispatcher })
+      });
+    } catch (error) {
+      if (error instanceof InvalidCaFileError) throw new CliError({ code: "INVALID_CA_FILE", message: error.message, exitCode: 2 });
+      if (error instanceof InvalidProxyError) throw new CliError({ code: "INVALID_PROXY", message: error.message, exitCode: 2 });
+      throw error;
+    }
     return { client, token, name: current.name, profile };
   }
 

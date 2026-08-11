@@ -1,9 +1,13 @@
 import http from "node:http";
 import { once } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { Agent } from "undici";
 import { afterEach, describe, expect, it } from "vitest";
-import { ApiClient, decodeData, validateApiPath, validateProxyUrl } from "../../src/http/client.js";
-import { ApiError } from "../../src/http/errors.js";
+import { ApiClient, createDispatcher, decodeData, validateApiPath, validateProxyUrl } from "../../src/http/client.js";
+import { ApiError, InvalidCaFileError, InvalidProxyError } from "../../src/http/errors.js";
+import { validateCliEndpoint } from "../../src/cli/context.js";
 
 const servers: http.Server[] = [];
 const dispatchers: Agent[] = [];
@@ -76,7 +80,28 @@ describe("API client", () => {
     "https://proxy.example.com/path",
     "socks5://proxy.example.com"
   ])("rejects unsafe proxy %s", value => {
-    expect(() => validateProxyUrl(value)).toThrow();
+    expect(() => validateProxyUrl(value)).toThrow(InvalidProxyError);
+  });
+
+  it("maps an unreadable or malformed CA file to a stable typed error", async () => {
+    await expect(createDispatcher({ caFile: "/definitely/not/a/ca.pem" })).rejects.toBeInstanceOf(InvalidCaFileError);
+    const directory = await mkdtemp(path.join(os.tmpdir(), "agent-identity-ca-test-"));
+    try {
+      const caFile = path.join(directory, "ca.pem");
+      await writeFile(caFile, "not a certificate\n", "utf8");
+      await expect(createDispatcher({ caFile })).rejects.toMatchObject({
+        name: "InvalidCaFileError",
+        message: "the configured CA file does not contain a PEM certificate"
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("requires explicit acknowledgement for a localhost HTTP override", () => {
+    expect(() => validateCliEndpoint("http://127.0.0.1:3000", false)).toThrowError(expect.objectContaining({ code: "INVALID_ENDPOINT" }));
+    expect(() => validateCliEndpoint("http://127.0.0.1:3000", true)).not.toThrow();
+    expect(() => validateCliEndpoint("http://example.com", true)).toThrowError(expect.objectContaining({ code: "INVALID_ENDPOINT" }));
   });
 });
 

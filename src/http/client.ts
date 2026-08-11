@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { rootCertificates } from "node:tls";
+import { X509Certificate } from "node:crypto";
 import { Agent, EnvHttpProxyAgent, ProxyAgent, request, type Dispatcher } from "undici";
-import { ApiError } from "./errors.js";
+import { ApiError, InvalidCaFileError, InvalidProxyError } from "./errors.js";
 
 const maximumResponseBytes = 52 * 1024 * 1024;
 const retryStatuses = new Set([429, 502, 503, 504]);
@@ -167,7 +168,14 @@ export function validateApiPath(value: string): void {
 export async function createDispatcher(options: Pick<ClientOptions, "proxyUrl" | "caFile">): Promise<Dispatcher> {
   const connect: Record<string, unknown> = { minVersion: "TLSv1.2" };
   if (options.caFile) {
-    connect.ca = [...rootCertificates, await readFile(options.caFile, "utf8")];
+    let customCa: string;
+    try {
+      customCa = await readFile(options.caFile, "utf8");
+      validatePemCertificates(customCa);
+    } catch (error) {
+      throw error instanceof InvalidCaFileError ? error : new InvalidCaFileError("unable to read the configured CA file", { cause: error });
+    }
+    connect.ca = [...rootCertificates, customCa];
   }
   if (options.proxyUrl) {
     const proxy = validateProxyUrl(options.proxyUrl);
@@ -180,7 +188,9 @@ export async function createDispatcher(options: Pick<ClientOptions, "proxyUrl" |
 }
 
 export function validateProxyUrl(value: string): string {
-  const proxy = new URL(value);
+  let proxy: URL;
+  try { proxy = new URL(value); }
+  catch { throw new InvalidProxyError(); }
   if (
     (proxy.protocol !== "http:" && proxy.protocol !== "https:") ||
     proxy.username !== "" ||
@@ -189,9 +199,16 @@ export function validateProxyUrl(value: string): string {
     proxy.search !== "" ||
     proxy.hash !== ""
   ) {
-    throw new Error("proxy must be an HTTP(S) origin without credentials, path, query, or fragment");
+    throw new InvalidProxyError();
   }
   return proxy.origin;
+}
+
+function validatePemCertificates(content: string): void {
+  const certificates = content.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/gu) ?? [];
+  if (certificates.length === 0) throw new InvalidCaFileError("the configured CA file does not contain a PEM certificate");
+  try { for (const certificate of certificates) void new X509Certificate(certificate); }
+  catch (error) { throw new InvalidCaFileError("the configured CA file does not contain a valid PEM certificate", { cause: error }); }
 }
 
 function hasHeader(headers: Record<string, string>, name: string): boolean {
