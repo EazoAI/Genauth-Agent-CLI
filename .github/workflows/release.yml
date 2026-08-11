@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Verify tag version
+        run: test "${GITHUB_REF_NAME#v}" = "$(tr -d '[:space:]' < VERSION)"
+      - run: make verify
+      - run: make test-race
+      - run: make npm-smoke
+      - run: make release-pack
+      - name: Publish npm packages
+        run: ./scripts/publish-npm.sh "${GITHUB_REF_NAME#v}" --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish GitHub release
+        run: gh release create "$GITHUB_REF_NAME" dist/release/* --generate-notes --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}

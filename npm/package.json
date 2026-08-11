@@ -1,0 +1,11 @@
+{
+  "name": "genauth-agent-cli-npm-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test agent-identity-cli/test/*.test.js"
+  }
+}

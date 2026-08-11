@@ -1,0 +1,23 @@
+{
+  "name": "@authing/agent-identity-cli-linux-x64",
+  "version": "0.1.0",
+  "description": "GenAuth Agent Identity CLI binary for Linux x64",
+  "license": "UNLICENSED",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Authing/genauth-agent-cli.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
