@@ -6,3 +6,7 @@
 /npm/*.tgz
 /npm/platforms/*/*.tgz
 /coverage.out
+/node_modules/
+/coverage/
+/*.tgz
+/.vitest/

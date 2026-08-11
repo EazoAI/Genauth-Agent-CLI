@@ -1,0 +1,55 @@
+{
+  "name": "@authing/agent-identity-cli",
+  "version": "0.1.0",
+  "description": "GenAuth Agent Identity CLI",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "bin": {
+    "agent-identity": "dist/bin/agent-identity.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Authing/genauth-agent-cli.git"
+  },
+  "homepage": "https://github.com/Authing/genauth-agent-cli#readme",
+  "bugs": {
+    "url": "https://github.com/Authing/genauth-agent-cli/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "verify": "npm run check && npm run test && npm run build && npm run contract:export && npm run pack:check",
+    "dev": "tsx src/bin/agent-identity.ts",
+    "contract:export": "tsx scripts/export-command-contract.ts",
+    "skills:verify": "tsx scripts/verify-skills.ts ../genauth-agent-skill",
+    "pack:check": "tsx scripts/pack-smoke.ts --check-only"
+  },
+  "dependencies": {
+    "@commander-js/extra-typings": "^15.0.0",
+    "@napi-rs/keyring": "^1.3.0",
+    "commander": "^15.0.0",
+    "undici": "^8.10.0",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@vitest/coverage-v8": "^4.1.0",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.0",
+    "vitest": "^4.1.0"
+  }
+}
