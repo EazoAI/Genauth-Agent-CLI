@@ -1,0 +1,141 @@
+import { afterEach, describe, expect, it } from "vitest";
+import type { Harness, RecordedRequest } from "../helpers/cli-harness.js";
+import { createHarness } from "../helpers/cli-harness.js";
+
+const active: Harness[] = [];
+afterEach(async () => Promise.all(active.splice(0).map(harness => harness.close())));
+
+describe("runtime command journey", () => {
+  it("creates and stores a Credential without printing its secret", async () => {
+    const harness = await fixtureHarness();
+    const result = await harness.run(["credentials", "create", "--agent-id", "agt-1"]);
+    const envelope = JSON.parse(result.stdout);
+    expect(envelope.kind).toBe("AgentCredential");
+    expect(envelope.data).toEqual({
+      credential_id: "cred-1",
+      expires_at: "2030-01-01T00:00:00Z",
+      secret_ref: "keychain://agent-identity/credential/cred-1"
+    });
+    expect(result.stdout).not.toContain("credential-secret");
+    expect(await harness.secrets.get("keychain://agent-identity/credential/cred-1")).toContain("credential-secret");
+    expect(harness.requests.map(request => request.path)).toEqual([
+      "/api/v3/agent-identity/admin/agents/agt-1/credentials",
+      "/api/v3/agent-identity/admin/credential-deliveries/delivery-1/consume"
+    ]);
+  });
+
+  it("removes a local Credential only after successful remote revoke", async () => {
+    const harness = await fixtureHarness();
+    await harness.secrets.set("keychain://agent-identity/credential/cred-1", "stored");
+    const result = await harness.run(["credentials", "revoke", "--agent-id", "agt-1", "--credential-id", "cred-1", "--yes"]);
+    expect(JSON.parse(result.stdout).kind).toBe("Credential");
+    await expect(harness.secrets.get("keychain://agent-identity/credential/cred-1")).rejects.toThrow();
+  });
+
+  it("issues a Token but omits access_token by default", async () => {
+    const harness = await fixtureHarness();
+    await storeCredential(harness);
+    const result = await harness.run(tokenArguments());
+    const envelope = JSON.parse(result.stdout);
+    expect(envelope.kind).toBe("AgentAccessToken");
+    expect(envelope.data).toEqual({ jti: "jti-1", expires_in: 300 });
+    expect(result.stdout).not.toContain("runtime-jwt");
+    expect(harness.requests.at(-1)?.headers.authorization).toBe(`Basic ${Buffer.from("cred-1:credential-secret").toString("base64")}`);
+  });
+
+  it("decodes a Token from stdin without claiming signature verification", async () => {
+    const harness = await fixtureHarness();
+    const token = `${Buffer.from('{"alg":"RS256"}').toString("base64url")}.${Buffer.from('{"sub":"user-1"}').toString("base64url")}.signature`;
+    const result = await harness.run(["tokens", "inspect", "--token-stdin"], token);
+    expect(JSON.parse(result.stdout).data).toEqual({
+      header: { alg: "RS256" },
+      claims: { sub: "user-1" },
+      signature_verified: false
+    });
+  });
+
+  it("calls only the fixed Provider route with an in-memory Token", async () => {
+    const harness = await fixtureHarness();
+    await storeCredential(harness);
+    const result = await harness.run([
+      "providers", "call",
+      "--credential", "keychain://agent-identity/credential/cred-1",
+      "--grant-id", "grant-1",
+      "--audience", "orders",
+      "--provider", "orders-provider",
+      "--method", "GET",
+      "--path", "/orders/1"
+    ]);
+    expect(JSON.parse(result.stdout)).toMatchObject({ kind: "ProviderResponse", data: { order_id: "1" } });
+    const request = harness.requests.at(-1);
+    expect(request?.path).toBe("/api/v3/agent-runtime/providers/orders-provider/orders/1");
+    expect(request?.headers.authorization).toBe("Bearer runtime-jwt");
+  });
+
+  it.each(["https://evil.example/x", "//evil", "/orders/../admin"])("rejects unsafe Provider path %s", async path => {
+    const harness = await fixtureHarness();
+    await storeCredential(harness);
+    await expect(harness.run([
+      "providers", "call", "--credential", "keychain://agent-identity/credential/cred-1",
+      "--grant-id", "grant-1", "--audience", "orders", "--provider", "p", "--path", path
+    ])).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+  });
+
+  it("revokes a UserGrant with version and reason", async () => {
+    const harness = await fixtureHarness();
+    await harness.run(["grants", "revoke", "--grant-id", "grant-1", "--version", "2", "--reason", "finished", "--yes"]);
+    const request = harness.requests.at(-1);
+    expect(request?.path).toBe("/api/v3/agent-identity/admin/agent-user-grants/grant-1/revoke");
+    expect(JSON.parse(request?.body ?? "{}")).toEqual({ version: 2, reason: "finished" });
+  });
+
+  it("does not let a user request silent authorization or another user ID", async () => {
+    const harness = await fixtureHarness("user");
+    await expect(harness.run([
+      "authorizations", "create", "--agent-id", "agt-1", "--user-id", "user-2",
+      "--audience", "orders", "--permission-id", "policy-1", "--mode", "silent", "--yes"
+    ])).rejects.toMatchObject({ code: "FORBIDDEN_USER_AUTHORIZATION_MODE" });
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  it("does not let a user execute approval operations", async () => {
+    const harness = await fixtureHarness("user");
+    await expect(harness.run(["approvals", "list"])).rejects.toMatchObject({ code: "ADMIN_LOGIN_REQUIRED" });
+    expect(harness.requests).toHaveLength(0);
+  });
+});
+
+async function fixtureHarness(loginType: "user" | "tenant_admin" = "tenant_admin"): Promise<Harness> {
+  const harness = await createHarness({ loginType, handler: handleFixture });
+  active.push(harness);
+  return harness;
+}
+
+function handleFixture(request: RecordedRequest, response: import("node:http").ServerResponse): void {
+  response.setHeader("Content-Type", "application/json");
+  response.setHeader("X-Request-Id", "req-test");
+  if (request.path.endsWith("/credentials") && request.method === "POST") {
+    response.end('{"data":{"credential":{"credential_id":"cred-1","expires_at":"2030-01-01T00:00:00Z"},"delivery":{"delivery_id":"delivery-1","delivery_code":"one-time"}}}');
+  } else if (request.path.includes("credential-deliveries")) {
+    response.end('{"data":{"credential_id":"cred-1","client_secret":"credential-secret"}}');
+  } else if (request.path === "/api/v3/agent-runtime/token") {
+    response.end('{"data":{"access_token":"runtime-jwt","jti":"jti-1","expires_in":300}}');
+  } else if (request.path.includes("/agent-runtime/providers/")) {
+    response.end('{"order_id":"1"}');
+  } else {
+    response.end('{"data":{"status":"REVOKED"}}');
+  }
+}
+
+async function storeCredential(harness: Harness): Promise<void> {
+  await harness.secrets.set("keychain://agent-identity/credential/cred-1", JSON.stringify({ credential_id: "cred-1", client_secret: "credential-secret" }));
+}
+
+function tokenArguments(): string[] {
+  return [
+    "tokens", "issue",
+    "--credential", "keychain://agent-identity/credential/cred-1",
+    "--grant-id", "grant-1",
+    "--audience", "orders"
+  ];
+}

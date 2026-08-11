@@ -8,6 +8,8 @@ import { registerSystemCommands } from "./commands/system.js";
 import { registerAgentCommands } from "./commands/agents.js";
 import { registerApprovalCommands } from "./commands/approvals.js";
 import { registerCredentialCommands } from "./commands/credentials.js";
+import { registerAuthorizationCommands } from "./commands/authorizations.js";
+import { registerRuntimeCommands } from "./commands/runtime.js";
 
 export interface ProgramBundle {
   program: Command;
@@ -43,6 +45,8 @@ export function createProgram(app = new AppContext()): ProgramBundle {
   registerAgentCommands(program, registry, app);
   registerApprovalCommands(program, registry, app);
   registerCredentialCommands(program, registry, app);
+  registerAuthorizationCommands(program, registry, app);
+  registerRuntimeCommands(program, registry, app);
   registerSystemCommands(program, registry, app);
   return { program, registry, app };
 }

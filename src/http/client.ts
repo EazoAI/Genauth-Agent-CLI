@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { rootCertificates } from "node:tls";
 import { Agent, EnvHttpProxyAgent, ProxyAgent, request, type Dispatcher } from "undici";
 import { ApiError } from "./errors.js";
 
@@ -51,6 +52,7 @@ export class ApiClient {
     body?: unknown;
     headers?: Record<string, string>;
     signal?: AbortSignal;
+    responseType?: "json" | "buffer";
   }): Promise<ApiResponse<T>> {
     validateApiPath(options.path);
     const target = new URL(`${this.endpoint}${options.path}`);
@@ -95,15 +97,16 @@ export class ApiClient {
         });
         const responseRequestId = headerValue(response.headers["x-request-id"]);
         const content = await readBoundedBody(response.body);
+        const textContent = content.toString("utf8");
         if (attempt + 1 < attempts && retryStatuses.has(response.statusCode)) {
           await waitForRetry(attempt, options.signal);
           continue;
         }
         if (response.statusCode < 200 || response.statusCode >= 300) {
-          throw decodeApiError(response.statusCode, content, responseRequestId, headerValue(response.headers["retry-after"]));
+          throw decodeApiError(response.statusCode, textContent, responseRequestId, headerValue(response.headers["retry-after"]));
         }
         return {
-          data: decodeJson<T>(content),
+          data: (options.responseType === "buffer" ? content : decodeJson<T>(textContent)) as T,
           requestId: responseRequestId,
           status: response.statusCode
         };
@@ -164,7 +167,7 @@ export function validateApiPath(value: string): void {
 export async function createDispatcher(options: Pick<ClientOptions, "proxyUrl" | "caFile">): Promise<Dispatcher> {
   const connect: Record<string, unknown> = { minVersion: "TLSv1.2" };
   if (options.caFile) {
-    connect.ca = await readFile(options.caFile, "utf8");
+    connect.ca = [...rootCertificates, await readFile(options.caFile, "utf8")];
   }
   if (options.proxyUrl) {
     const proxy = validateProxyUrl(options.proxyUrl);
@@ -260,7 +263,7 @@ async function waitForRetry(attempt: number, signal?: AbortSignal): Promise<void
   });
 }
 
-async function readBoundedBody(body: AsyncIterable<Uint8Array>): Promise<string> {
+async function readBoundedBody(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of body) {
@@ -271,5 +274,5 @@ async function readBoundedBody(body: AsyncIterable<Uint8Array>): Promise<string>
     }
     chunks.push(buffer);
   }
-  return Buffer.concat(chunks, size).toString("utf8");
+  return Buffer.concat(chunks, size);
 }

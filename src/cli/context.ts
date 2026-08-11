@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Command } from "commander";
 import { ApiClient, decodeData } from "../http/client.js";
+import type { Dispatcher } from "undici";
 import { ApiError } from "../http/errors.js";
 import { OAuthClient, type OAuthToken } from "../auth/oauth.js";
 import { CliError } from "../core/errors.js";
@@ -41,8 +42,9 @@ export class AppContext {
   readonly profiles: ProfileStore;
   readonly secrets: SecretStore;
   readonly io: AppIo;
+  readonly dispatcher?: Dispatcher;
 
-  constructor(options: { profiles?: ProfileStore; secrets?: SecretStore; io?: Partial<AppIo> } = {}) {
+  constructor(options: { profiles?: ProfileStore; secrets?: SecretStore; io?: Partial<AppIo>; dispatcher?: Dispatcher } = {}) {
     this.profiles = options.profiles ?? new ProfileStore();
     this.secrets = options.secrets ?? new KeychainSecretStore();
     this.io = {
@@ -50,6 +52,7 @@ export class AppContext {
       output: options.io?.output ?? process.stdout,
       error: options.io?.error ?? process.stderr
     };
+    if (options.dispatcher !== undefined) this.dispatcher = options.dispatcher;
   }
 
   global(command: Command): GlobalOptions {
@@ -125,7 +128,8 @@ export class AppContext {
       requestId: global.requestId,
       timeoutMs: global.timeoutMs,
       proxyUrl: global.proxy,
-      caFile: global.caFile
+      caFile: global.caFile,
+      ...(this.dispatcher === undefined ? {} : { dispatcher: this.dispatcher })
     });
     return { client, token, name: current.name, profile };
   }

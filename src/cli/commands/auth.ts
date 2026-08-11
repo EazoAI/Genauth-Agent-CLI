@@ -46,7 +46,8 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
       endpoint: global.endpoint,
       timeoutMs: global.timeoutMs,
       proxyUrl: global.proxy,
-      caFile: global.caFile
+      caFile: global.caFile,
+      ...(app.dispatcher === undefined ? {} : { dispatcher: app.dispatcher })
     });
     let token: OAuthToken;
     if (options.sessionTokenStdin) {
