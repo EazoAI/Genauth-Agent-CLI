@@ -90,7 +90,7 @@ remain in the upstream permission system; Agent Identity stores snapshots.
 ## Develop and verify
 
 ```bash
-npm ci
+npm install --no-package-lock
 make verify
 make npm-smoke
 make acceptance-gates

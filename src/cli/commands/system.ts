@@ -1,8 +1,13 @@
+import { createRequire } from "node:module";
 import type { Command } from "commander";
 import type { AppContext } from "../context.js";
 import { COMMAND_CONTRACT, type CommandRegistry } from "../manifest.js";
 
-export const CLI_VERSION = "0.1.0";
+const packageManifest = createRequire(import.meta.url)("../../../package.json") as { version?: unknown };
+if (typeof packageManifest.version !== "string") {
+  throw new Error("package.json must contain a version");
+}
+export const CLI_VERSION = packageManifest.version;
 
 export function registerSystemCommands(parent: Command, registry: CommandRegistry, app: AppContext): void {
   registry.leaf(parent, { path: "doctor", description: "Check profile, Keychain, and GenAuth connectivity", options: [] }, async (_options, command) => {
