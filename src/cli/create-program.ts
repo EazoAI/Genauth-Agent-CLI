@@ -6,6 +6,8 @@ import { registerProfileCommands } from "./commands/profiles.js";
 import { registerPermissionCommands } from "./commands/permissions.js";
 import { registerSystemCommands } from "./commands/system.js";
 import { registerAgentCommands } from "./commands/agents.js";
+import { registerApprovalCommands } from "./commands/approvals.js";
+import { registerCredentialCommands } from "./commands/credentials.js";
 
 export interface ProgramBundle {
   program: Command;
@@ -39,6 +41,8 @@ export function createProgram(app = new AppContext()): ProgramBundle {
   registerProfileCommands(program, registry, app);
   registerPermissionCommands(program, registry, app);
   registerAgentCommands(program, registry, app);
+  registerApprovalCommands(program, registry, app);
+  registerCredentialCommands(program, registry, app);
   registerSystemCommands(program, registry, app);
   return { program, registry, app };
 }
