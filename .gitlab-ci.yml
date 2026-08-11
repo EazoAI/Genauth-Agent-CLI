@@ -7,7 +7,8 @@ default:
     - eak-us
 
 stages:
-  - sync
+  - verify
+  - release
 
 variables:
   GIT_DEPTH: "0"
@@ -19,8 +20,29 @@ workflow:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     - when: never
 
+verify_cli:
+  stage: verify
+  image:
+    name: node:22-bookworm-slim
+    entrypoint: [""]
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+  before_script:
+    - node --version
+    - npm --version
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - npm run verify
+    - npm run smoke:npm
+
 sync_github:
-  stage: sync
+  stage: release
+  needs:
+    - verify_cli
   resource_group: github-mirror
   interruptible: false
   rules:
@@ -84,3 +106,63 @@ sync_github:
       fi
   after_script:
     - git remote remove github 2>/dev/null || true
+
+publish_npm:
+  stage: release
+  image:
+    name: node:22-bookworm-slim
+    entrypoint: [""]
+  needs:
+    - verify_cli
+  resource_group: npm-publish
+  interruptible: false
+  variables:
+    NPM_CONFIG_USERCONFIG: "$CI_PROJECT_DIR/.npmrc"
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+    policy: pull
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$/'
+      when: manual
+      allow_failure: false
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+    - when: never
+  before_script:
+    - |
+      if [ -z "${NPM_TOKEN:-}" ]; then
+        echo "Missing protected and masked GitLab CI/CD variable: NPM_TOKEN" >&2
+        exit 1
+      fi
+    - |
+      umask 077
+      printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$NPM_CONFIG_USERCONFIG"
+    - npm whoami --registry https://registry.npmjs.org/
+    - npm ci --cache .npm --prefer-offline
+  script:
+    - |
+      release_version="$(tr -d '[:space:]' < VERSION)"
+      package_name="$(node -p "require('./package.json').name")"
+
+      if [ -n "${CI_COMMIT_TAG:-}" ] && [ "$CI_COMMIT_TAG" != "v$release_version" ]; then
+        echo "Tag $CI_COMMIT_TAG does not match package version v$release_version" >&2
+        exit 1
+      fi
+
+      if npm view "$package_name@$release_version" version --registry https://registry.npmjs.org/ >/dev/null 2>&1; then
+        echo "$package_name@$release_version is already published; refusing to overwrite it" >&2
+        exit 1
+      fi
+
+      npm run build
+      npm run contract:export
+      npm run metadata:check
+      npm run pack:check
+      ./scripts/publish-npm.sh "$release_version" --registry https://registry.npmjs.org/
+  after_script:
+    - rm -f "$NPM_CONFIG_USERCONFIG"

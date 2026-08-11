@@ -119,6 +119,20 @@ variables are available to the job. If the GitHub branch has diverged, or a tag
 with the same name points at a different commit, synchronization fails safely
 and requires manual reconciliation.
 
+### Publish to npm from GitLab
+
+Every default-branch and release-tag pipeline first runs `verify_cli`. After it
+passes, `publish_npm` is available as a manual job. The job validates npm
+authentication, rejects a Tag/version mismatch or an existing package version,
+rebuilds the package, reruns the release metadata and tarball checks, and then
+publishes the public package to npmjs.org.
+
+Configure `NPM_TOKEN` as a masked, protected, raw GitLab CI/CD variable. The
+token must be allowed to publish `@authing/genauth-agent-cli` and must satisfy
+the npm account or organization 2FA policy. Protect release Tag patterns so the
+variable is available to Tag pipelines. The temporary project `.npmrc` is
+removed after every publish attempt.
+
 ## Release
 
 ```bash
