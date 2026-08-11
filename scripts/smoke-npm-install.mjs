@@ -11,7 +11,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const manifest = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
 const version = manifest.version;
 
-const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "agent-identity-npm-smoke-"));
+const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-npm-smoke-"));
 try {
   const packDirectory = path.join(temporaryRoot, "packs");
   const installDirectory = path.join(temporaryRoot, "install");
@@ -31,14 +31,14 @@ try {
   run(npm, ["install", "--global", "--prefix", installDirectory, archive]);
 
   const command = process.platform === "win32"
-    ? path.join(installDirectory, "agent-identity.cmd")
-    : path.join(installDirectory, "bin", "agent-identity");
+    ? path.join(installDirectory, "genauth-agent.cmd")
+    : path.join(installDirectory, "bin", "genauth-agent");
   const output = run(command, ["--output", "json", "version"]);
   const envelope = JSON.parse(output);
   assert.equal(envelope.kind, "Version");
   assert.equal(envelope.data.cli_version, version);
   assert.equal(envelope.data.runtime, "node");
-  assert.equal(envelope.data.command_contract, "agent-identity.commands/v2");
+  assert.equal(envelope.data.command_contract, "genauth-agent.commands/v2");
   const help = run(command, ["--help"]);
   assert.match(help, /GenAuth Agent Identity/u);
   for (const shell of ["bash", "zsh", "fish", "powershell"]) {

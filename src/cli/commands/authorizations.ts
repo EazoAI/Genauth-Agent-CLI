@@ -278,7 +278,7 @@ async function authorizationPath(app: AppContext, global: GlobalOptions, request
   return `${prefix}/authorization-requests/${escape(requestId)}`;
 }
 
-function secretRef(requestId: string, suffix: string): string { return `keychain://agent-identity/authorization/${requestId}/${suffix}`; }
+function secretRef(requestId: string, suffix: string): string { return `keychain://genauth-agent/authorization/${requestId}/${suffix}`; }
 function escape(value: string): string { return encodeURIComponent(value); }
 function invalid(message: string): CliError { return new CliError({ code: "INVALID_ARGUMENT", message, exitCode: 2 }); }
 function serverResponse(message: string, requestId: string): CliError { return new CliError({ code: "INVALID_SERVER_RESPONSE", message, requestId, exitCode: 9 }); }

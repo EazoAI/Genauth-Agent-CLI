@@ -99,7 +99,7 @@ export class AppContext {
       current = await this.profiles.current(global.profile);
     } catch (error) {
       if (error instanceof InvalidProfileError) {
-        throw new CliError({ code: "NOT_LOGGED_IN", message: "run agent-identity auth login first", exitCode: 3 });
+        throw new CliError({ code: "NOT_LOGGED_IN", message: "run genauth-agent auth login first", exitCode: 3 });
       }
       throw error;
     }
@@ -178,7 +178,7 @@ export class AppContext {
       }
     }
     if (global.debug) {
-      this.io.error.write(`agent-identity debug method=${requestOptions.method} path=${requestOptions.path} result=success request_id=${result.requestId}\n`);
+      this.io.error.write(`genauth-agent debug method=${requestOptions.method} path=${requestOptions.path} result=success request_id=${result.requestId}\n`);
     }
     return { data: result.data, requestId: result.requestId } as { data: T; requestId: string };
   }
@@ -189,7 +189,7 @@ export class AppContext {
   }
 
   async probeSecretStore(): Promise<void> {
-    const reference = `keychain://agent-identity/probe/${randomUUID()}`;
+    const reference = `keychain://genauth-agent/probe/${randomUUID()}`;
     try {
       await this.secrets.set(reference, "secret-store-readiness-probe");
       await this.secrets.delete(reference);

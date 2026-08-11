@@ -42,7 +42,7 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
     validateCliEndpoint(global.endpoint, global.allowInsecureLocalhost);
     await app.probeSecretStore();
     const clientId = text(options.clientId);
-    const secretRef = `keychain://agent-identity/session/${profileName}`;
+    const secretRef = `keychain://genauth-agent/session/${profileName}`;
     let transport: ApiClient;
     try {
       transport = await ApiClient.create({

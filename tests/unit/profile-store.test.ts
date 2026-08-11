@@ -13,19 +13,19 @@ afterEach(async () => {
 });
 
 describe("profile store", () => {
-  it("round trips a Go-compatible profile with private permissions", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "agent-identity-profile-"));
+  it("round trips a profile with private permissions", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-profile-"));
     temporaryDirectories.push(directory);
     const store = new ProfileStore(path.join(directory, "config.json"));
     await store.save({
-      api_version: "agent-identity.cli/v1",
+      api_version: "genauth-agent.cli/v1",
       current_profile: "acme",
       profiles: {
         acme: {
           endpoint: "https://genauth.example.com",
           login_type: "tenant_admin",
           selected_user_pool_id: "pool-1",
-          secret_ref: "keychain://agent-identity/session/acme"
+          secret_ref: "keychain://genauth-agent/session/acme"
         }
       }
     });
@@ -36,10 +36,10 @@ describe("profile store", () => {
   });
 
   it("returns an empty config when the file is absent", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "agent-identity-profile-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-profile-"));
     temporaryDirectories.push(directory);
     const config = await new ProfileStore(path.join(directory, "missing.json")).load();
-    expect(config).toEqual({ api_version: "agent-identity.cli/v1", current_profile: "", profiles: {} });
+    expect(config).toEqual({ api_version: "genauth-agent.cli/v1", current_profile: "", profiles: {} });
   });
 
   it.each([
@@ -55,10 +55,10 @@ describe("profile store", () => {
     expect(() => validateProfileName(name)).not.toThrow();
   });
 
-  it("matches Go user config directory rules", () => {
-    expect(userConfigDirectory({}, "darwin", "/Users/alice")).toBe("/Users/alice/Library/Application Support/agent-identity");
-    expect(userConfigDirectory({}, "linux", "/home/alice")).toBe("/home/alice/.config/agent-identity");
-    expect(userConfigDirectory({ XDG_CONFIG_HOME: "/config" }, "linux", "/home/alice")).toBe("/config/agent-identity");
-    expect(userConfigDirectory({ APPDATA: "C:\\Users\\alice\\AppData\\Roaming" }, "win32", "C:\\Users\\alice")).toContain("agent-identity");
+  it("uses platform-native GenAuth Agent config directories", () => {
+    expect(userConfigDirectory({}, "darwin", "/Users/alice")).toBe("/Users/alice/Library/Application Support/genauth-agent");
+    expect(userConfigDirectory({}, "linux", "/home/alice")).toBe("/home/alice/.config/genauth-agent");
+    expect(userConfigDirectory({ XDG_CONFIG_HOME: "/config" }, "linux", "/home/alice")).toBe("/config/genauth-agent");
+    expect(userConfigDirectory({ APPDATA: "C:\\Users\\alice\\AppData\\Roaming" }, "win32", "C:\\Users\\alice")).toContain("genauth-agent");
   });
 });

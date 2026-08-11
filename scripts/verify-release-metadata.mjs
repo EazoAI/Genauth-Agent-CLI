@@ -15,7 +15,7 @@ assert.equal(manifest.version, version, "package.json version must match VERSION
 assert.equal(lock.version, version, "package-lock.json version must match VERSION");
 assert.equal(lock.packages?.[""]?.version, version, "package-lock root version must match VERSION");
 assert.equal(manifest.type, "module", "package must remain ESM");
-assert.equal(manifest.bin?.["agent-identity"], "dist/bin/agent-identity.js", "package must expose the Node CLI");
+assert.equal(manifest.bin?.["genauth-agent"], "dist/bin/genauth-agent.js", "package must expose the Node CLI");
 assert.match(manifest.engines?.node ?? "", />=22/u, "Node 22 or newer must be required");
 
 const rootSource = await readFile(path.join(repositoryRoot, "src/cli/commands/system.ts"), "utf8");

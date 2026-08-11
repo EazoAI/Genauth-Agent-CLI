@@ -21,7 +21,7 @@ export function createProgram(app = new AppContext()): ProgramBundle {
   const program = new Command();
   const registry = new CommandRegistry();
   program
-    .name("agent-identity")
+    .name("genauth-agent")
     .description("GenAuth Agent Identity CLI")
     .showHelpAfterError(false)
     .option("--profile <name>", "local profile name")

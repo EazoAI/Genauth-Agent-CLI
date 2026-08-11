@@ -194,7 +194,7 @@ async function issueToken(app: AppContext, global: GlobalOptions, options: Optio
 async function runChild(app: AppContext, executable: string, arguments_: string[], accessToken: string): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const child = spawn(executable, arguments_, {
-      env: { ...process.env, AGENT_IDENTITY_ACCESS_TOKEN: accessToken },
+      env: { ...process.env, GENAUTH_AGENT_ACCESS_TOKEN: accessToken },
       stdio: ["pipe", "pipe", "pipe"],
       shell: false
     });

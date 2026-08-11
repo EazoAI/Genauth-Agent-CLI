@@ -1,6 +1,6 @@
 import { Option, type Command, type OptionValues } from "commander";
 
-export const COMMAND_CONTRACT = "agent-identity.commands/v2";
+export const COMMAND_CONTRACT = "genauth-agent.commands/v2";
 
 export interface OptionContract {
   flags: string;

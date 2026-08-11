@@ -1,6 +1,6 @@
 import { createPlatformSecretStore } from "./native-keychain.js";
 
-const referencePrefix = "keychain://agent-identity/";
+const referencePrefix = "keychain://genauth-agent/";
 
 export interface SecretStore {
   set(reference: string, value: string): Promise<void>;
@@ -34,19 +34,6 @@ export class KeychainSecretStore implements SecretStore {
     await this.implementation.delete(reference);
   }
 }
-const goBase64Prefix = "go-keyring-base64:";
-const goHexPrefix = "go-keyring-encoded:";
-
-export function encodeGoKeyringValue(value: string): string {
-  return `${goBase64Prefix}${Buffer.from(value, "utf8").toString("base64")}`;
-}
-
-export function decodeGoKeyringValue(value: string): string {
-  if (value.startsWith(goBase64Prefix)) return Buffer.from(value.slice(goBase64Prefix.length), "base64").toString("utf8");
-  if (value.startsWith(goHexPrefix)) return Buffer.from(value.slice(goHexPrefix.length), "hex").toString("utf8");
-  return value;
-}
-
 export function secretAccount(reference: string): string {
   if (
     !reference.startsWith(referencePrefix) ||

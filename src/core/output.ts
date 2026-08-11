@@ -1,6 +1,6 @@
 import { stringify as stringifyYaml } from "yaml";
 
-export const CLI_API_VERSION = "agent-identity.cli/v1";
+export const CLI_API_VERSION = "genauth-agent.cli/v1";
 export type OutputFormat = "json" | "yaml" | "table";
 
 export interface SuccessEnvelope<T = unknown> {

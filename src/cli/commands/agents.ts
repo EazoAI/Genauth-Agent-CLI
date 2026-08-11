@@ -288,7 +288,7 @@ async function createAgent(app: AppContext, options: OptionValues, command: Comm
         remediation: {
           agent_id: agent.id,
           cause_code: cause.code,
-          next_command: `agent-identity agents capability update --agent-id ${agent.id} --audience <audience> --permission-id <policy-id> --version 0`
+          next_command: `genauth-agent agents capability update --agent-id ${agent.id} --audience <audience> --permission-id <policy-id> --version 0`
         }
       });
     }

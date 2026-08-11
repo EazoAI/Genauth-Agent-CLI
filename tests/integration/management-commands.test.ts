@@ -52,7 +52,7 @@ describe("management command boundaries", () => {
       }
     });
     active.push(harness);
-    await harness.secrets.set("keychain://agent-identity/session/test", JSON.stringify({
+    await harness.secrets.set("keychain://genauth-agent/session/test", JSON.stringify({
       access_token: "expired-token",
       refresh_token: "refresh-token"
     }));
@@ -64,7 +64,7 @@ describe("management command boundaries", () => {
     ]);
     expect(harness.requests[0]?.headers.authorization).toBe("Bearer expired-token");
     expect(harness.requests[2]?.headers.authorization).toBe("Bearer fresh-token");
-    expect(await harness.secrets.get("keychain://agent-identity/session/test")).toContain("fresh-refresh");
+    expect(await harness.secrets.get("keychain://genauth-agent/session/test")).toContain("fresh-refresh");
   });
 
   it("keeps the local login intact when remote logout revocation fails", async () => {
@@ -77,7 +77,7 @@ describe("management command boundaries", () => {
     active.push(harness);
     await expect(harness.run(["auth", "logout"])).rejects.toMatchObject({ code: "LOGOUT_REVOKE_FAILED" });
     expect((await harness.profileStore.load()).profiles.test).toBeDefined();
-    await expect(harness.secrets.get("keychain://agent-identity/session/test")).resolves.toContain("human-token");
+    await expect(harness.secrets.get("keychain://genauth-agent/session/test")).resolves.toContain("human-token");
   });
 
   it("warns only after remote logout and local profile removal when Keychain cleanup fails", async () => {
@@ -131,7 +131,7 @@ describe("management command boundaries", () => {
   });
 
   it("loads Agent YAML and requires an explicit permission merge policy", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "agent-identity-agent-file-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-agent-file-"));
     directories.push(directory);
     const file = path.join(directory, "agent.yaml");
     await writeFile(file, [
@@ -311,7 +311,7 @@ describe("management command boundaries", () => {
     expect(envelope.kind).toBe("AuthorizationRequest");
     expect(envelope.data.authorization_url).toContain("request_id=auth-1");
     expect(envelope.data.authorization_url).toContain("user_pool_id=pool-1");
-    expect(envelope.data.pkce_ref).toBe("keychain://agent-identity/authorization/auth-1/pkce");
+    expect(envelope.data.pkce_ref).toBe("keychain://genauth-agent/authorization/auth-1/pkce");
     expect(result.stdout).not.toContain("code_verifier");
     expect(await harness.secrets.get(envelope.data.pkce_ref)).not.toBe("");
   });
@@ -331,7 +331,7 @@ describe("management command boundaries", () => {
       "/api/v3/agent-identity/me/agents/agt-1/authorization-requests",
       "/api/v3/agent-identity/me/authorization-requests/auth-1/cancel"
     ]);
-    await expect(harness.secrets.get("keychain://agent-identity/authorization/auth-1/pkce")).rejects.toThrow();
+    await expect(harness.secrets.get("keychain://genauth-agent/authorization/auth-1/pkce")).rejects.toThrow();
   });
 
   it("records user consent without displaying its code by default", async () => {
@@ -340,7 +340,7 @@ describe("management command boundaries", () => {
     expect(JSON.parse(result.stdout).data).toEqual({
       request_id: "auth-1",
       redirect_uri: "http://127.0.0.1:1234/callback",
-      code_ref: "keychain://agent-identity/authorization/auth-1/code"
+      code_ref: "keychain://genauth-agent/authorization/auth-1/code"
     });
     expect(result.stdout).not.toContain("one-time-code");
   });

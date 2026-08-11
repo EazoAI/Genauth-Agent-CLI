@@ -26,7 +26,7 @@ export function registerSystemCommands(parent: Command, registry: CommandRegistr
     const global = app.global(command);
     app.success(global, "Version", {
       cli_version: CLI_VERSION,
-      api_version: "agent-identity.cli/v1",
+      api_version: "genauth-agent.cli/v1",
       command_contract: COMMAND_CONTRACT,
       server_contract: "genauth-agent-identity-v1",
       runtime: "node",
@@ -49,10 +49,10 @@ export function registerSystemCommands(parent: Command, registry: CommandRegistr
     const words = registry.commands.flatMap(item => item.path.split(" "));
     const unique = [...new Set(words)].sort().join(" ");
     const scripts: Record<string, string> = {
-      bash: `complete -W "${unique}" agent-identity\n`,
-      zsh: `compdef '_arguments "1:command:(${unique})"' agent-identity\n`,
-      fish: unique.split(" ").map(word => `complete -c agent-identity -a '${word}'`).join("\n") + "\n",
-      powershell: `Register-ArgumentCompleter -CommandName agent-identity -ScriptBlock { param($wordToComplete) '${unique}'.Split(' ') | Where-Object { $_ -like \"$wordToComplete*\" } }\n`
+      bash: `complete -W "${unique}" genauth-agent\n`,
+      zsh: `compdef '_arguments "1:command:(${unique})"' genauth-agent\n`,
+      fish: unique.split(" ").map(word => `complete -c genauth-agent -a '${word}'`).join("\n") + "\n",
+      powershell: `Register-ArgumentCompleter -CommandName genauth-agent -ScriptBlock { param($wordToComplete) '${unique}'.Split(' ') | Where-Object { $_ -like \"$wordToComplete*\" } }\n`
     };
     app.io.output.write(scripts[shell] ?? "");
     void global;

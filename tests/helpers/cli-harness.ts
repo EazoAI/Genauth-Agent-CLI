@@ -51,11 +51,11 @@ export async function createHarness(options: {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("fixture server unavailable");
   const endpoint = `http://127.0.0.1:${address.port}`;
-  const directory = await mkdtemp(path.join(os.tmpdir(), "agent-identity-node-test-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-node-test-"));
   const profileStore = new ProfileStore(path.join(directory, "config.json"));
   const secrets = new MemorySecretStore();
   await profileStore.save({
-    api_version: "agent-identity.cli/v1",
+    api_version: "genauth-agent.cli/v1",
     current_profile: "test",
     profiles: {
       test: {
@@ -64,11 +64,11 @@ export async function createHarness(options: {
         login_type: options.loginType ?? "tenant_admin",
         subject_id: options.loginType === "user" ? "user-1" : "admin-1",
         selected_user_pool_id: "pool-1",
-        secret_ref: "keychain://agent-identity/session/test"
+        secret_ref: "keychain://genauth-agent/session/test"
       }
     }
   });
-  await secrets.set("keychain://agent-identity/session/test", JSON.stringify({ access_token: "human-token" }));
+  await secrets.set("keychain://genauth-agent/session/test", JSON.stringify({ access_token: "human-token" }));
   const dispatcher = new Agent();
   return {
     endpoint,
@@ -85,7 +85,7 @@ export async function createHarness(options: {
         io: { input: Readable.from([input]), output: stdout, error: stderr }
       });
       const { program } = createProgram(app);
-      await program.parseAsync(["node", "agent-identity", "--non-interactive", ...arguments_]);
+      await program.parseAsync(["node", "genauth-agent", "--non-interactive", ...arguments_]);
       return { stdout: stdout.value, stderr: stderr.value };
     },
     async close() {

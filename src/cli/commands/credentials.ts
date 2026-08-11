@@ -63,7 +63,7 @@ export function registerCredentialCommands(parent: Command, registry: CommandReg
       headers: idempotencyHeaders()
     });
     const warnings: string[] = [];
-    await app.secrets.delete(`keychain://agent-identity/credential/${credentialId}`).catch(() => {
+    await app.secrets.delete(`keychain://genauth-agent/credential/${credentialId}`).catch(() => {
       warnings.push("credential was revoked, but its local OS secret-store entry could not be removed");
     });
     app.success(global, "Credential", result.data, result.requestId, warnings);
@@ -110,7 +110,7 @@ async function createCredential(app: AppContext, options: OptionValues, command:
   }
   let secretRef = "";
   if (storeKeychain) {
-    secretRef = `keychain://agent-identity/credential/${secret.credential_id}`;
+    secretRef = `keychain://genauth-agent/credential/${secret.credential_id}`;
     try {
       await app.secrets.set(secretRef, JSON.stringify({ credential_id: secret.credential_id, client_secret: secret.client_secret }));
     } catch {

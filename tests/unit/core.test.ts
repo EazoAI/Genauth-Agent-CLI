@@ -36,7 +36,7 @@ describe("core validation helpers", () => {
   });
 
   it("reads valid JSON/YAML objects and rejects invalid inputs", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "agent-identity-input-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-input-"));
     directories.push(directory);
     const json = path.join(directory, "input.json");
     const yaml = path.join(directory, "input.yaml");
@@ -80,7 +80,7 @@ describe("core validation helpers", () => {
   });
 
   it("covers config directory overrides and missing Windows APPDATA", () => {
-    expect(userConfigDirectory({ AGENT_IDENTITY_CONFIG_DIR: " /custom " }, "linux", "/home/a")).toBe("/custom");
+    expect(userConfigDirectory({ GENAUTH_AGENT_CONFIG_DIR: " /custom " }, "linux", "/home/a")).toBe("/custom");
     expect(() => userConfigDirectory({}, "win32", "C:\\Users\\a")).toThrow("APPDATA");
   });
 });

@@ -14,10 +14,10 @@ describe("runtime command journey", () => {
     expect(envelope.data).toEqual({
       credential_id: "cred-1",
       expires_at: "2030-01-01T00:00:00Z",
-      secret_ref: "keychain://agent-identity/credential/cred-1"
+      secret_ref: "keychain://genauth-agent/credential/cred-1"
     });
     expect(result.stdout).not.toContain("credential-secret");
-    expect(await harness.secrets.get("keychain://agent-identity/credential/cred-1")).toContain("credential-secret");
+    expect(await harness.secrets.get("keychain://genauth-agent/credential/cred-1")).toContain("credential-secret");
     expect(harness.requests.map(request => request.path)).toEqual([
       "/api/v3/agent-identity/admin/agents/agt-1/credentials",
       "/api/v3/agent-identity/admin/credential-deliveries/delivery-1/consume"
@@ -66,15 +66,15 @@ describe("runtime command journey", () => {
 
   it("removes a local Credential only after successful remote revoke", async () => {
     const harness = await fixtureHarness();
-    await harness.secrets.set("keychain://agent-identity/credential/cred-1", "stored");
+    await harness.secrets.set("keychain://genauth-agent/credential/cred-1", "stored");
     const result = await harness.run(["credentials", "revoke", "--agent-id", "agt-1", "--credential-id", "cred-1", "--yes"]);
     expect(JSON.parse(result.stdout).kind).toBe("Credential");
-    await expect(harness.secrets.get("keychain://agent-identity/credential/cred-1")).rejects.toThrow();
+    await expect(harness.secrets.get("keychain://genauth-agent/credential/cred-1")).rejects.toThrow();
   });
 
   it("reports a warning if remote Credential revoke succeeds but local cleanup fails", async () => {
     const harness = await fixtureHarness();
-    await harness.secrets.set("keychain://agent-identity/credential/cred-1", "stored");
+    await harness.secrets.set("keychain://genauth-agent/credential/cred-1", "stored");
     harness.secrets.delete = async reference => {
       if (reference.includes("/credential/")) throw new Error("keychain unavailable");
     };
@@ -108,7 +108,7 @@ describe("runtime command journey", () => {
     await storeCredential(harness);
     const result = await harness.run([
       ...tokenArguments(), "--exec", process.execPath,
-      "--exec-arg=-e", "--exec-arg=process.exit(process.env.AGENT_IDENTITY_ACCESS_TOKEN === 'runtime-jwt' ? 0 : 1)"
+      "--exec-arg=-e", "--exec-arg=process.exit(process.env.GENAUTH_AGENT_ACCESS_TOKEN === 'runtime-jwt' ? 0 : 1)"
     ]);
     expect(result.stdout).toBe("");
   });
@@ -118,9 +118,9 @@ describe("runtime command journey", () => {
     ['{"credential_id":"cred-1"}', "INVALID_CREDENTIAL_REFERENCE"]
   ])("rejects invalid stored Credential %s", async (stored, code) => {
     const harness = await fixtureHarness();
-    await harness.secrets.set("keychain://agent-identity/credential/bad", stored);
+    await harness.secrets.set("keychain://genauth-agent/credential/bad", stored);
     await expect(harness.run([
-      "tokens", "issue", "--credential", "keychain://agent-identity/credential/bad", "--grant-id", "grant-1", "--audience", "orders"
+      "tokens", "issue", "--credential", "keychain://genauth-agent/credential/bad", "--grant-id", "grant-1", "--audience", "orders"
     ])).rejects.toMatchObject({ code });
     expect(harness.requests).toHaveLength(0);
   });
@@ -128,7 +128,7 @@ describe("runtime command journey", () => {
   it("rejects a missing Credential reference", async () => {
     const harness = await fixtureHarness();
     await expect(harness.run([
-      "tokens", "issue", "--credential", "keychain://agent-identity/credential/missing", "--grant-id", "grant-1", "--audience", "orders"
+      "tokens", "issue", "--credential", "keychain://genauth-agent/credential/missing", "--grant-id", "grant-1", "--audience", "orders"
     ])).rejects.toMatchObject({ code: "CREDENTIAL_NOT_FOUND" });
   });
 
@@ -148,7 +148,7 @@ describe("runtime command journey", () => {
     await storeCredential(harness);
     const result = await harness.run([
       "providers", "call",
-      "--credential", "keychain://agent-identity/credential/cred-1",
+      "--credential", "keychain://genauth-agent/credential/cred-1",
       "--grant-id", "grant-1",
       "--audience", "orders",
       "--provider", "orders-provider",
@@ -169,7 +169,7 @@ describe("runtime command journey", () => {
     active.push(harness);
     await storeCredential(harness);
     const result = await harness.run([
-      "providers", "call", "--credential", "keychain://agent-identity/credential/cred-1",
+      "providers", "call", "--credential", "keychain://genauth-agent/credential/cred-1",
       "--grant-id", "grant-1", "--audience", "orders", "--provider", "p", "--path", "/plain"
     ]);
     expect(JSON.parse(result.stdout).data).toEqual({ content_base64: Buffer.from("plain response").toString("base64"), encoding: "base64" });
@@ -179,7 +179,7 @@ describe("runtime command journey", () => {
     const harness = await fixtureHarness();
     await storeCredential(harness);
     await expect(harness.run([
-      "providers", "call", "--credential", "keychain://agent-identity/credential/cred-1",
+      "providers", "call", "--credential", "keychain://genauth-agent/credential/cred-1",
       "--grant-id", "grant-1", "--audience", "orders", "--provider", "p", "--path", path
     ])).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
   });
@@ -196,7 +196,7 @@ describe("runtime command journey", () => {
     const harness = await fixtureHarness();
     const values: Array<[string, string]> = [["pkce", "verifier"], ["code", "code"], ["callback", "http://127.0.0.1/callback"], ["url", "https://example.test/authorize"]];
     for (const [suffix, value] of values) {
-      await harness.secrets.set(`keychain://agent-identity/authorization/auth-1/${suffix}`, value);
+      await harness.secrets.set(`keychain://genauth-agent/authorization/auth-1/${suffix}`, value);
     }
     const originalDelete = harness.secrets.delete.bind(harness.secrets);
     harness.secrets.delete = async reference => {
@@ -249,13 +249,13 @@ function handleFixture(request: RecordedRequest, response: import("node:http").S
 }
 
 async function storeCredential(harness: Harness): Promise<void> {
-  await harness.secrets.set("keychain://agent-identity/credential/cred-1", JSON.stringify({ credential_id: "cred-1", client_secret: "credential-secret" }));
+  await harness.secrets.set("keychain://genauth-agent/credential/cred-1", JSON.stringify({ credential_id: "cred-1", client_secret: "credential-secret" }));
 }
 
 function tokenArguments(): string[] {
   return [
     "tokens", "issue",
-    "--credential", "keychain://agent-identity/credential/cred-1",
+    "--credential", "keychain://genauth-agent/credential/cred-1",
     "--grant-id", "grant-1",
     "--audience", "orders"
   ];

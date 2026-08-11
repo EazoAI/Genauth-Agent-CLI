@@ -1,5 +1,5 @@
 {
-  "name": "@authing/agent-identity-cli",
+  "name": "@authing/genauth-agent-cli",
   "version": "0.1.0",
   "description": "GenAuth Agent Identity CLI",
   "license": "UNLICENSED",
@@ -8,7 +8,7 @@
     "node": ">=22.22.0"
   },
   "bin": {
-    "agent-identity": "dist/bin/agent-identity.js"
+    "genauth-agent": "dist/bin/genauth-agent.js"
   },
   "files": [
     "dist",
@@ -31,12 +31,10 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:differential": "npm run build && vitest run --config vitest.differential.config.ts",
     "test:e2e": "npm run build && npm run contract:export && vitest run --config vitest.e2e.config.ts",
-    "test:keychain-compat": "tsx scripts/verify-keychain-compatibility.ts",
     "metadata:check": "node scripts/verify-release-metadata.mjs",
     "verify": "npm run check && npm run test:coverage && npm run build && npm run contract:export && npm run metadata:check && npm run pack:check",
-    "dev": "tsx src/bin/agent-identity.ts",
+    "dev": "tsx src/bin/genauth-agent.ts",
     "contract:export": "tsx scripts/export-command-contract.ts",
     "skills:verify": "tsx scripts/verify-skills.ts ../genauth-agent-skill",
     "pack:check": "tsx scripts/pack-smoke.ts",

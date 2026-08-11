@@ -1,6 +1,6 @@
 # GenAuth Agent Identity CLI
 
-`agent-identity` is the Node.js CLI for the complete GenAuth Agent Identity
+`genauth-agent` is the Node.js CLI for the complete GenAuth Agent Identity
 journey. It authenticates a tenant administrator or user, selects one user
 pool, creates and approves company Agents, manages Agent-level settings and
 Credentials, completes explicit or policy-allowed silent authorization, issues
@@ -18,9 +18,9 @@ Identity private service routes, EAK Delegation, or Token Vault directly.
 Install globally from npm after the package is published:
 
 ```bash
-npm install --global @authing/agent-identity-cli
-agent-identity version
-agent-identity --help
+npm install --global @authing/genauth-agent-cli
+genauth-agent version
+genauth-agent --help
 ```
 
 The npm package contains JavaScript plus the native Keychain adapter dependency;
@@ -32,33 +32,33 @@ there is no Go compiler, downloaded executable, platform subpackage, or
 Tenant administrator login also selects a user pool:
 
 ```bash
-agent-identity --endpoint https://genauth.example.com auth login \
+genauth-agent --endpoint https://genauth.example.com auth login \
   --admin --client-id your-client-id --user-pool-id pool-id
 ```
 
 A user login always binds to their own identity and one user pool:
 
 ```bash
-agent-identity --endpoint https://genauth.example.com auth login \
+genauth-agent --endpoint https://genauth.example.com auth login \
   --client-id your-client-id --user-pool-id pool-id
 ```
 
 Continue with discoverable help or the companion Skills:
 
 ```bash
-agent-identity permissions scopes
-agent-identity agents create --help
-agent-identity agents capability submit --help
-agent-identity approvals list
-agent-identity credentials create --help
-agent-identity authorizations create --help
-agent-identity tokens issue --help
-agent-identity providers call --help
+genauth-agent permissions scopes
+genauth-agent agents create --help
+genauth-agent agents capability submit --help
+genauth-agent approvals list
+genauth-agent credentials create --help
+genauth-agent authorizations create --help
+genauth-agent tokens issue --help
+genauth-agent providers call --help
 ```
 
 Machine consumers should use the stable JSON envelope (the default), whose API
-version remains `agent-identity.cli/v1`. The canonical command contract is
-`agent-identity.commands/v2`; export it with `npm run contract:export`.
+version remains `genauth-agent.cli/v1`. The canonical command contract is
+`genauth-agent.commands/v2`; export it with `npm run contract:export`.
 
 ## Security boundary
 
@@ -87,32 +87,23 @@ remain in the upstream permission system; Agent Identity stores snapshots.
 npm ci
 make verify
 make npm-smoke
-make migration-gates
+make acceptance-gates
 ```
 
 `make verify` type-checks, runs unit/integration/contract tests, builds from a
 clean `dist`, exports commands/v2, verifies version metadata and the npm tarball,
 and checks the sibling `../genauth-agent-skill` repository. `make npm-smoke`
 performs a real `npm pack`, installs the tarball into an isolated prefix, and
-executes `agent-identity version` and `--help`.
+executes `genauth-agent version` and `--help`.
 
-`make migration-gates` additionally builds the annotated Go baseline and
-compares every mapped leaf command, error exit, HTTP request and JSON envelope;
-it also proves bidirectional Go/Node Keychain compatibility and runs the full
-three-actor journey through an isolated global install of the packed npm
-tarball. The local Keychain gate uses the current operating system's secure
-store.
-
-CI repeats the Keychain test against macOS Keychain, Linux Secret Service, and
-Windows Credential Manager. The Windows adapter deliberately preserves Go's
-`agent-identity-cli:<account>` target, raw UTF-8 blob, username, and local-machine
-persistence instead of using the native dependency's incompatible defaults.
+`make acceptance-gates` adds the full three-actor journey through an isolated
+global installation of the packed npm tarball. The CLI uses the native
+operating-system credential store through its Node.js Keychain dependency.
 
 The GitHub verify workflow runs Node 22 and 24 across macOS arm64/x64, Linux
 arm64/x64, and Windows x64. The release workflow publishes one npm package with
 provenance and attaches that tarball plus checksums to the GitHub release only
-after the platform matrix, platform Keychain compatibility, Go/Node
-differential, installed journey, and Skill contract jobs all pass.
+after the platform matrix, installed journey, and Skill contract jobs all pass.
 
 ## Release
 
@@ -134,7 +125,7 @@ open-source software.
 - `src/cli`: commands/v2 registry and journey orchestration.
 - `src/auth`: OIDC PKCE, browser callback, refresh, and revocation.
 - `src/http`: bounded, retry-aware GenAuth HTTP transport.
-- `src/storage`: Go-compatible profile and operating-system Keychain adapters.
+- `src/storage`: local profiles and the operating-system Keychain adapter.
 - `tests`: unit, management/runtime integration, and command contract tests.
 - `scripts`: contract, Skill, package, smoke, and release verification.
 

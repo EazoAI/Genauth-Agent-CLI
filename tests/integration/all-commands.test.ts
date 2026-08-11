@@ -71,7 +71,7 @@ describe("commands/v2 executable journey coverage", () => {
 
   it("executes non-network system commands and profile mutation", async () => {
     const harness = await fixture();
-    expect(JSON.parse((await harness.run(["version"])).stdout).data.command_contract).toBe("agent-identity.commands/v2");
+    expect(JSON.parse((await harness.run(["version"])).stdout).data.command_contract).toBe("genauth-agent.commands/v2");
     expect((await harness.run(["completion", "bash"])).stdout).toContain("complete -W");
     await harness.run(["profiles", "set", "--client-id", "client-2"]);
     expect((await harness.profileStore.load()).profiles.test?.client_id).toBe("client-2");

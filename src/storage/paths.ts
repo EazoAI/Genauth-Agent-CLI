@@ -6,7 +6,7 @@ export function userConfigDirectory(
   platform: NodeJS.Platform = process.platform,
   homeDirectory = os.homedir()
 ): string {
-  const override = environment.AGENT_IDENTITY_CONFIG_DIR?.trim();
+  const override = environment.GENAUTH_AGENT_CONFIG_DIR?.trim();
   if (override) {
     return override;
   }
@@ -15,11 +15,11 @@ export function userConfigDirectory(
     if (!appData) {
       throw new Error("APPDATA is not configured");
     }
-    return path.join(appData, "agent-identity");
+    return path.join(appData, "genauth-agent");
   }
   if (platform === "darwin") {
-    return path.join(homeDirectory, "Library", "Application Support", "agent-identity");
+    return path.join(homeDirectory, "Library", "Application Support", "genauth-agent");
   }
   const xdg = environment.XDG_CONFIG_HOME?.trim();
-  return path.join(xdg || path.join(homeDirectory, ".config"), "agent-identity");
+  return path.join(xdg || path.join(homeDirectory, ".config"), "genauth-agent");
 }

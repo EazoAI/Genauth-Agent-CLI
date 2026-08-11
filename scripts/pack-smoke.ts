@@ -6,9 +6,9 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const manifest = JSON.parse(await readFile(path.resolve("package.json"), "utf8")) as { bin?: Record<string, string> };
-const binary = manifest.bin?.["agent-identity"];
+const binary = manifest.bin?.["genauth-agent"];
 if (!binary) {
-  throw new Error("package.json does not expose agent-identity");
+  throw new Error("package.json does not expose genauth-agent");
 }
 await access(path.resolve(binary));
 const { stdout } = await execFileAsync(npmCommand(), ["pack", "--dry-run", "--json", "--ignore-scripts"], {
@@ -18,7 +18,7 @@ const { stdout } = await execFileAsync(npmCommand(), ["pack", "--dry-run", "--js
 });
 const report = JSON.parse(stdout) as Array<{ files?: Array<{ path?: string }> }>;
 const files = new Set((report[0]?.files ?? []).flatMap(item => item.path ? [item.path] : []));
-for (const required of ["package.json", "README.md", "dist/bin/agent-identity.js", "dist/contracts/commands-v2.json"]) {
+for (const required of ["package.json", "README.md", "dist/bin/genauth-agent.js", "dist/contracts/commands-v2.json"]) {
   if (!files.has(required)) throw new Error(`npm tarball is missing ${required}`);
 }
 for (const forbidden of files) {

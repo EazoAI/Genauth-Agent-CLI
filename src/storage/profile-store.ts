@@ -6,7 +6,7 @@ import { CLI_API_VERSION } from "../core/output.js";
 import { userConfigDirectory } from "./paths.js";
 
 const profileNamePattern = /^[A-Za-z0-9._-]{1,64}$/;
-const secretReferencePrefix = "keychain://agent-identity/";
+const secretReferencePrefix = "keychain://genauth-agent/";
 
 const profileSchema = z.object({
   endpoint: z.string(),

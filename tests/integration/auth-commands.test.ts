@@ -13,8 +13,8 @@ describe("authentication command branches", () => {
       "auth", "login", "--user-pool-id", "pool-1", "--profile-name", "member", "--session-token-stdin"
     ], "opaque-session");
     expect(JSON.parse(result.stdout).data).toMatchObject({ profile: "member", login_type: "user", selected_user_pool_id: "pool-1" });
-    expect((await harness.profileStore.load()).profiles.member?.secret_ref).toBe("keychain://agent-identity/session/member");
-    expect(await harness.secrets.get("keychain://agent-identity/session/member")).toContain("opaque-session");
+    expect((await harness.profileStore.load()).profiles.member?.secret_ref).toBe("keychain://genauth-agent/session/member");
+    expect(await harness.secrets.get("keychain://genauth-agent/session/member")).toContain("opaque-session");
   });
 
   it("logs in an administrator and verifies the selected manageable pool", async () => {
@@ -63,10 +63,10 @@ describe("authentication command branches", () => {
 
   it("refreshes the current profile explicitly", async () => {
     const harness = await fixture();
-    await harness.secrets.set("keychain://agent-identity/session/test", JSON.stringify({ access_token: "old", refresh_token: "refresh" }));
+    await harness.secrets.set("keychain://genauth-agent/session/test", JSON.stringify({ access_token: "old", refresh_token: "refresh" }));
     const result = await harness.run(["auth", "refresh"]);
     expect(JSON.parse(result.stdout).data.refreshed).toBe(true);
-    expect(await harness.secrets.get("keychain://agent-identity/session/test")).toContain("new-access");
+    expect(await harness.secrets.get("keychain://genauth-agent/session/test")).toContain("new-access");
   });
 
   it("rejects refresh without a refresh token", async () => {

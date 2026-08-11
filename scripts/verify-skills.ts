@@ -44,7 +44,7 @@ if (failures.length > 0) {
 
 function validateInvocation(invocation: string): { command?: string; error?: string } {
   const tokens = tokenize(invocation);
-  if (tokens[0] !== "agent-identity") return { error: "could not tokenize CLI invocation" };
+  if (tokens[0] !== "genauth-agent") return { error: "could not tokenize CLI invocation" };
   const remaining: string[] = [];
   const flags: string[] = [];
   for (let index = 1; index < tokens.length; index += 1) {
@@ -77,13 +77,13 @@ function extractInvocations(content: string): string[] {
     const language = (match[1] ?? "").trim().split(/\s+/u)[0]?.toLowerCase() ?? "";
     if (["", "bash", "sh", "shell", "console"].includes(language)) segments.push(match[2] ?? "");
   }
-  for (const match of content.matchAll(/`([^`\n]*agent-identity[^`\n]*)`/gu)) segments.push(match[1] ?? "");
+  for (const match of content.matchAll(/`([^`\n]*genauth-agent[^`\n]*)`/gu)) segments.push(match[1] ?? "");
   const invocations: string[] = [];
   for (const segment of segments) {
     const normalized = segment.replace(/\\\s*\n\s*/gu, " ");
     for (const line of normalized.split("\n")) {
-      const match = /(?<![-/A-Za-z0-9])agent-identity(?=\s|$)(.*)$/u.exec(line);
-      if (match) invocations.push(`agent-identity${match[1] ?? ""}`.trim());
+      const match = /(?<![-/A-Za-z0-9])genauth-agent(?=\s|$)(.*)$/u.exec(line);
+      if (match) invocations.push(`genauth-agent${match[1] ?? ""}`.trim());
     }
   }
   return invocations;

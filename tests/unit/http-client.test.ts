@@ -85,7 +85,7 @@ describe("API client", () => {
 
   it("maps an unreadable or malformed CA file to a stable typed error", async () => {
     await expect(createDispatcher({ caFile: "/definitely/not/a/ca.pem" })).rejects.toBeInstanceOf(InvalidCaFileError);
-    const directory = await mkdtemp(path.join(os.tmpdir(), "agent-identity-ca-test-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-ca-test-"));
     try {
       const caFile = path.join(directory, "ca.pem");
       await writeFile(caFile, "not a certificate\n", "utf8");

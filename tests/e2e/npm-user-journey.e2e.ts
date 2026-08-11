@@ -35,7 +35,7 @@ let fixture: Awaited<ReturnType<typeof createJourneyFixture>>;
 
 beforeAll(async () => {
   if (process.platform !== "darwin") throw new Error("installed CLI user-journey gate must run on macOS with a real Keychain");
-  testRoot = await mkdtemp(path.join(os.tmpdir(), "agent-identity-npm-e2e-"));
+  testRoot = await mkdtemp(path.join(os.tmpdir(), "genauth-agent-npm-e2e-"));
   configDirectory = path.join(testRoot, "config");
   const packs = path.join(testRoot, "packs");
   const prefix = path.join(testRoot, "install");
@@ -47,21 +47,21 @@ beforeAll(async () => {
   if (!archiveName) throw new Error("npm pack did not return an archive");
   const installed = await run("npm", ["install", "--global", "--prefix", prefix, path.join(packs, archiveName), "--silent"]);
   expect(installed.exitCode, installed.stderr).toBe(0);
-  cli = path.join(prefix, "bin", "agent-identity");
+  cli = path.join(prefix, "bin", "genauth-agent");
   fixture = await createJourneyFixture();
 });
 
 afterAll(async () => {
   await fixture?.close();
   for (const reference of [
-    "keychain://agent-identity/session/agent-owner",
-    "keychain://agent-identity/session/agent-approver",
-    "keychain://agent-identity/session/agent-user",
-    "keychain://agent-identity/credential/cred-1",
-    "keychain://agent-identity/authorization/auth-1/pkce",
-    "keychain://agent-identity/authorization/auth-1/code",
-    "keychain://agent-identity/authorization/auth-1/callback",
-    "keychain://agent-identity/authorization/auth-1/url"
+    "keychain://genauth-agent/session/agent-owner",
+    "keychain://genauth-agent/session/agent-approver",
+    "keychain://genauth-agent/session/agent-user",
+    "keychain://genauth-agent/credential/cred-1",
+    "keychain://genauth-agent/authorization/auth-1/pkce",
+    "keychain://genauth-agent/authorization/auth-1/code",
+    "keychain://genauth-agent/authorization/auth-1/callback",
+    "keychain://genauth-agent/authorization/auth-1/url"
   ]) await secretStore.delete(reference).catch(() => undefined);
   if (testRoot !== "") await rm(testRoot, { recursive: true, force: true });
 });
@@ -70,7 +70,7 @@ describe("npm-installed complete Agent Identity user journey", () => {
   it("completes separate-owner approval, settings, Credential, explicit authorization, Token, Provider, and revoke phases", async () => {
     const version = await invoke(undefined, ["version"]);
     expect(version.envelope?.data).toMatchObject({
-      command_contract: "agent-identity.commands/v2",
+      command_contract: "genauth-agent.commands/v2",
       runtime: "node"
     });
 
@@ -154,7 +154,7 @@ describe("npm-installed complete Agent Identity user journey", () => {
     const credential = await invoke("agent-owner", ["credentials", "create", "--agent-id", "agt-1"]);
     expect(credential.envelope?.data).toMatchObject({
       credential_id: "cred-1",
-      secret_ref: "keychain://agent-identity/credential/cred-1"
+      secret_ref: "keychain://genauth-agent/credential/cred-1"
     });
     expect(JSON.stringify(credential.envelope)).not.toContain("credential-secret");
     await invoke("agent-owner", ["credentials", "list", "--agent-id", "agt-1"]);
@@ -188,7 +188,7 @@ describe("npm-installed complete Agent Identity user journey", () => {
 
     const provider = await invoke("agent-owner", [
       "providers", "call",
-      "--credential", "keychain://agent-identity/credential/cred-1",
+      "--credential", "keychain://genauth-agent/credential/cred-1",
       "--grant-id", "grant-1",
       "--audience", "orders",
       "--provider", "orders-provider",
@@ -208,7 +208,7 @@ describe("npm-installed complete Agent Identity user journey", () => {
 
     const revoked = await invoke("agent-owner", [
       "providers", "call",
-      "--credential", "keychain://agent-identity/credential/cred-1",
+      "--credential", "keychain://genauth-agent/credential/cred-1",
       "--grant-id", "grant-1",
       "--audience", "orders",
       "--provider", "orders-provider",
@@ -244,7 +244,7 @@ async function invoke(profile: string | undefined, arguments_: string[], input =
     ...arguments_,
     "--output", "json",
     "--non-interactive"
-  ], { env: { ...process.env, AGENT_IDENTITY_CONFIG_DIR: configDirectory }, input });
+  ], { env: { ...process.env, GENAUTH_AGENT_CONFIG_DIR: configDirectory }, input });
   expect(result.exitCode, result.stderr).toBe(expectedExit);
   const serialized = expectedExit === 0 ? result.stdout : result.stderr;
   const envelope = serialized.trim() ? JSON.parse(serialized) as Record<string, any> : undefined;
