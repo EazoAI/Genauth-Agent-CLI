@@ -30,10 +30,10 @@ describe("commands/v2 manifest", () => {
       for (const option of command.options) expect(option.flags).toMatch(/^--[a-z]/u);
     }
   });
-  it("keeps client-id only as a hidden login compatibility override", () => {
+  it("publishes administrator-only login options", () => {
     const login = contract.commands.find(command => command.path === "auth login");
-    expect(login?.options.find(option => option.flags === "--client-id <id>")).toMatchObject({
-      hidden: true
-    });
+    expect(login?.description).toBe("Login as a tenant administrator");
+    expect(login?.options.map(option => option.flags)).not.toContain("--admin");
+    expect(login?.options.map(option => option.flags)).not.toContain("--client-id <id>");
   });
 });

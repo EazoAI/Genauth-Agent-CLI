@@ -65,11 +65,10 @@ describe("OAuth and PKCE", () => {
     const dispatcher = new Agent();
     agents.push(dispatcher);
     const token = await new OAuthClient({ endpoint, clientId: "client-1", dispatcher }).login({
-      userPoolId: "pool-1",
       noBrowser: true,
       notify(url) {
         const authorize = new URL(url);
-        expect(authorize.searchParams.get("user_pool_id")).toBe("pool-1");
+        expect(authorize.searchParams.has("user_pool_id")).toBe(false);
         expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
         const callback = new URL(authorize.searchParams.get("redirect_uri") ?? "");
         callback.searchParams.set("code", "login-code");

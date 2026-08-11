@@ -16,34 +16,26 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
 
   registry.leaf(auth, {
     path: "auth login",
-    description: "Login as a user or tenant administrator",
+    description: "Login as a tenant administrator",
     options: [
-      { flags: "--user-pool-id <id>", description: "selected user pool ID" },
+      { flags: "--user-pool-id <id>", description: "optional manageable user pool to select after login" },
       { flags: "--profile-name <name>", description: "profile to create", defaultValue: "default" },
-      { flags: "--client-id <id>", description: "override the discovered GenAuth OIDC client ID", hidden: true },
-      { flags: "--admin", description: "login as tenant administrator" },
       { flags: "--session-token-stdin", description: "read an existing GenAuth session token from stdin" }
     ]
   }, async (options, command) => {
     const global = app.global(command);
     const profileName = text(options.profileName) || "default";
     const userPoolId = text(options.userPoolId);
-    const admin = Boolean(options.admin);
     try {
       validateProfileName(profileName);
     } catch {
       throw new CliError({ code: "INVALID_ARGUMENT", message: "profile is required", exitCode: 2 });
-    }
-    if (!admin && userPoolId === "") {
-      throw new CliError({ code: "INVALID_ARGUMENT", message: "user-pool-id is required for user login", exitCode: 2 });
     }
     if (global.endpoint === "") {
       throw new CliError({ code: "INVALID_ENDPOINT", message: "endpoint must be provided for login", exitCode: 2 });
     }
     validateCliEndpoint(global.endpoint, global.allowInsecureLocalhost);
     await app.probeSecretStore();
-    let clientId = text(options.clientId);
-    const warnings: string[] = [];
     const secretRef = `keychain://genauth-agent/session/${profileName}`;
     let transport: ApiClient;
     try {
@@ -59,8 +51,10 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
       if (error instanceof InvalidProxyError) throw new CliError({ code: "INVALID_PROXY", message: error.message, exitCode: 2 });
       throw error;
     }
+    const discovered = await discoverLoginConfig(transport);
+    const clientId = discovered.clientId;
+    const loginConfigRequestId = discovered.requestId;
     let token: OAuthToken;
-    let loginConfigRequestId = "";
     if (options.sessionTokenStdin) {
       const value = await readLimitedStdin(app.io.input);
       if (value === "") {
@@ -75,13 +69,6 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
           exitCode: 2
         });
       }
-      if (clientId === "") {
-        const discovered = await discoverLoginConfig(transport);
-        clientId = discovered.clientId;
-        loginConfigRequestId = discovered.requestId;
-      } else {
-        warnings.push("--client-id is deprecated; GenAuth login configuration is normally discovered from the endpoint");
-      }
       const controller = AbortSignal.timeout(5 * 60_000);
       try {
         token = await new OAuthClient({
@@ -90,7 +77,6 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
           dispatcher: transport.dispatcher,
           timeoutMs: global.timeoutMs
         }).login({
-          userPoolId,
           noBrowser: global.noBrowser,
           signal: controller,
           notify: url => {
@@ -106,17 +92,15 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
     const profile: Profile = {
       endpoint: global.endpoint,
       ...(clientId === "" ? {} : { client_id: clientId }),
-      login_type: admin ? "tenant_admin" : "user",
+      login_type: "tenant_admin",
       ...(tokenSubject(token.access_token) === "" ? {} : { subject_id: tokenSubject(token.access_token) }),
       selected_user_pool_id: userPoolId,
       secret_ref: secretRef
     };
     let requestId = loginConfigRequestId;
-    if (admin) {
-      const selected = await selectAdminUserPool(global, token.access_token, userPoolId, transport);
-      profile.selected_user_pool_id = selected.userPoolId;
-      requestId = selected.requestId;
-    }
+    const selected = await selectAdminUserPool(global, token.access_token, userPoolId, transport);
+    profile.selected_user_pool_id = selected.userPoolId;
+    requestId = selected.requestId;
     await app.secrets.set(secretRef, JSON.stringify(token));
     const config = await app.profiles.load();
     config.profiles[profileName] = profile;
@@ -133,7 +117,7 @@ export function registerAuthCommands(parent: Command, registry: CommandRegistry,
       subject_id: profile.subject_id ?? "",
       selected_user_pool_id: profile.selected_user_pool_id,
       secret_ref: secretRef
-    }, requestId, warnings);
+    }, requestId);
   });
 
   registry.leaf(auth, {

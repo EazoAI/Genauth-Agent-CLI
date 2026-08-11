@@ -63,7 +63,6 @@ export class OAuthClient {
   }
 
   async login(options: {
-    userPoolId?: string;
     noBrowser?: boolean;
     notify: (url: string) => void;
     signal?: AbortSignal;
@@ -86,8 +85,7 @@ export class OAuthClient {
       scope: "openid profile offline_access",
       state,
       code_challenge: pkce.challenge,
-      code_challenge_method: "S256",
-      ...(options.userPoolId?.trim() ? { user_pool_id: options.userPoolId.trim() } : {})
+      code_challenge_method: "S256"
     }).toString();
     const callback = waitForLoginCallback(callbackServer, state, options.signal);
     options.notify(authorize.toString());

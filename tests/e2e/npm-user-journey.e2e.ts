@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ProfileStore } from "../../src/storage/profile-store.js";
 import { KeychainSecretStore } from "../../src/storage/secret-store.js";
 
 interface JourneyState {
@@ -74,9 +75,9 @@ describe("npm-installed complete Agent Identity user journey", () => {
       runtime: "node"
     });
 
-    await login("agent-owner", "owner-token", true);
-    await login("agent-approver", "approver-token", true);
-    await login("agent-user", "user-token", false);
+    await login("agent-owner", "owner-token");
+    await login("agent-approver", "approver-token");
+    await seedLegacyMemberProfile("agent-user", "user-token");
 
     for (const [profile, loginType, subject] of [
       ["agent-owner", "tenant_admin", "owner-1"],
@@ -225,17 +226,31 @@ describe("npm-installed complete Agent Identity user journey", () => {
   });
 });
 
-async function login(profile: string, token: string, admin: boolean): Promise<void> {
+async function login(profile: string, token: string): Promise<void> {
   await invoke(undefined, [
     "auth", "login",
-    ...(admin ? ["--admin"] : []),
     "--profile-name", profile,
     "--endpoint", fixture.endpoint,
     "--allow-insecure-localhost",
     "--user-pool-id", "pool-1",
-    "--client-id", "client-1",
     "--session-token-stdin"
   ], token);
+}
+
+async function seedLegacyMemberProfile(profile: string, token: string): Promise<void> {
+  const secretRef = `keychain://genauth-agent/session/${profile}`;
+  await secretStore.set(secretRef, JSON.stringify({ access_token: token }));
+  const profileStore = new ProfileStore(path.join(configDirectory, "config.json"));
+  const config = await profileStore.load();
+  config.profiles[profile] = {
+    endpoint: fixture.endpoint,
+    client_id: "cli-client",
+    login_type: "user",
+    subject_id: "user-1",
+    selected_user_pool_id: "pool-1",
+    secret_ref: secretRef
+  };
+  await profileStore.save(config);
 }
 
 async function invoke(profile: string | undefined, arguments_: string[], input = "", expectedExit = 0): Promise<CliResult> {
@@ -294,6 +309,15 @@ function handleJourneyRequest(state: JourneyState, request: http.IncomingMessage
   response.setHeader("Content-Type", "application/json");
   response.setHeader("X-Request-Id", `req-${state.auditEvents.length + 1}`);
 
+  if (pathname === "/api/v3/agent-identity/auth/config") return send(response, 200, { data: {
+    client_id: "cli-client",
+    authorization_endpoint: "/oidc/auth",
+    token_endpoint: "/oidc/token",
+    revocation_endpoint: "/oidc/token/revocation",
+    scopes: ["openid", "profile", "offline_access"],
+    code_challenge_method: "S256",
+    redirect_uri_pattern: "http://127.0.0.1:*/callback"
+  } });
   if (pathname === "/oidc/token/revocation") return send(response, 200, undefined);
   if (pathname === "/api/v3/agent-identity/admin/user-pools") return send(response, 200, { data: { list: [{ id: "pool-1" }] } });
   if (pathname === "/api/v3/agent-identity/admin/context") return send(response, 200, { data: identityFor(bearer) });

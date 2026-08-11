@@ -29,25 +29,19 @@ there is no Go compiler, downloaded executable, platform subpackage, or
 
 ## First journey
 
-Tenant administrator login also selects a user pool:
+Login always authenticates a tenant administrator through the dedicated root
+user-pool application. A user pool is selected only after authentication; when
+the administrator owns exactly one pool, the CLI selects it automatically:
 
 ```bash
 genauth-agent --endpoint https://genauth.example.com auth login \
-  --admin --profile-name agent-admin
-```
-
-A user login always binds to their own identity and one user pool:
-
-```bash
-genauth-agent --endpoint https://genauth.example.com auth login \
-  --user-pool-id pool-id --profile-name agent-user
+  --profile-name agent-admin
 ```
 
 The CLI discovers the dedicated public OIDC login client from GenAuth at
 `/api/v3/agent-identity/auth/config`, then opens the default GenAuth login page
 and completes Authorization Code + PKCE S256 through a one-time loopback
-callback. `--client-id` remains only as a hidden compatibility override for
-older development environments.
+callback. The CLI currently exposes no member-login or client-ID override flow.
 
 Continue with discoverable help or the companion Skills:
 
