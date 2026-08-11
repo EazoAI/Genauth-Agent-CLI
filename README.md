@@ -100,13 +100,19 @@ executes `agent-identity version` and `--help`.
 compares every mapped leaf command, error exit, HTTP request and JSON envelope;
 it also proves bidirectional Go/Node Keychain compatibility and runs the full
 three-actor journey through an isolated global install of the packed npm
-tarball. The Keychain-backed gates run on macOS.
+tarball. The local Keychain gate uses the current operating system's secure
+store.
+
+CI repeats the Keychain test against macOS Keychain, Linux Secret Service, and
+Windows Credential Manager. The Windows adapter deliberately preserves Go's
+`agent-identity-cli:<account>` target, raw UTF-8 blob, username, and local-machine
+persistence instead of using the native dependency's incompatible defaults.
 
 The GitHub verify workflow runs Node 22 and 24 across macOS arm64/x64, Linux
 arm64/x64, and Windows x64. The release workflow publishes one npm package with
 provenance and attaches that tarball plus checksums to the GitHub release only
-after the platform matrix, Go/Node differential, installed journey, and Skill
-contract jobs all pass.
+after the platform matrix, platform Keychain compatibility, Go/Node
+differential, installed journey, and Skill contract jobs all pass.
 
 ## Release
 

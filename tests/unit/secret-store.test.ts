@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { decodeGoKeyringValue, encodeGoKeyringValue, MemorySecretStore, secretAccount } from "../../src/storage/secret-store.js";
+import {
+  windowsCredentialPowerShell,
+  WindowsCredentialManagerSecretStore,
+  windowsCredentialTarget,
+  type WindowsCredentialRunner
+} from "../../src/storage/native-keychain.js";
 
 describe("secret references", () => {
   it("keeps the Go keychain service account suffix", () => {
@@ -32,5 +38,47 @@ describe("secret references", () => {
 
   it("decodes the legacy Go hex keyring prefix", () => {
     expect(decodeGoKeyringValue("go-keyring-encoded:736563726574")).toBe("secret");
+  });
+
+  it("uses the exact Go Windows target and raw UTF-8 value contract", async () => {
+    const calls: Array<{ action: string; payload: Record<string, string | undefined> }> = [];
+    const value = "Windows compatibility 中文 ✓";
+    const runner: WindowsCredentialRunner = async (action, payload) => {
+      calls.push({ action, payload });
+      return action === "get" ? Buffer.from(value, "utf8").toString("base64") : "";
+    };
+    const store = new WindowsCredentialManagerSecretStore(runner);
+    const reference = "keychain://agent-identity/session/admin";
+
+    await store.set(reference, value);
+    expect(await store.get(reference)).toBe(value);
+    await store.delete(reference);
+
+    expect(windowsCredentialTarget("session/admin")).toBe("agent-identity-cli:session/admin");
+    expect(calls).toEqual([
+      {
+        action: "set",
+        payload: {
+          target: "agent-identity-cli:session/admin",
+          username: "session/admin",
+          value_base64: Buffer.from(value, "utf8").toString("base64")
+        }
+      },
+      {
+        action: "get",
+        payload: { target: "agent-identity-cli:session/admin", username: "session/admin" }
+      },
+      {
+        action: "delete",
+        payload: { target: "agent-identity-cli:session/admin", username: "session/admin" }
+      }
+    ]);
+  });
+
+  it("keeps Windows Credential Manager secrets off the PowerShell command text", () => {
+    expect(windowsCredentialPowerShell).toContain("CredWriteW");
+    expect(windowsCredentialPowerShell).toContain("System.Text.UTF8Encoding");
+    expect(windowsCredentialPowerShell).toContain("Persist = 2");
+    expect(windowsCredentialPowerShell).not.toContain("credential-secret");
   });
 });

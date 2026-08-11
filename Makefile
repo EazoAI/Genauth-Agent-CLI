@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: help install clean check test coverage build metadata-check skills-check pack-check npm-smoke differential e2e migration-gates release-pack verify
+.PHONY: help install clean check test coverage build metadata-check skills-check pack-check npm-smoke differential e2e keychain-compat migration-gates release-pack verify
 
 help:
 	@echo "install        Install the CLI globally from this checkout"
@@ -15,6 +15,7 @@ help:
 	@echo "npm-smoke      Pack, install, and execute the npm package"
 	@echo "differential   Compare the complete Go baseline and Node CLI contracts"
 	@echo "e2e            Run the npm-installed multi-actor Agent journey"
+	@echo "keychain-compat Prove bidirectional compatibility with the Go OS keyring"
 	@echo "migration-gates Run all local migration acceptance gates"
 	@echo "release-pack   Create the npm GitHub release artifact"
 	@echo "verify         Run all local non-install verification gates"
@@ -56,7 +57,10 @@ differential:
 e2e:
 	npm run test:e2e
 
-migration-gates: verify differential e2e npm-smoke
+keychain-compat:
+	npm run test:keychain-compat
+
+migration-gates: verify differential e2e keychain-compat npm-smoke
 
 release-pack: verify
 	./scripts/package-github-release.sh
