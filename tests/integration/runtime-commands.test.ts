@@ -24,6 +24,23 @@ describe("runtime command journey", () => {
     ]);
   });
 
+  it("warns without rewriting elapsed active and rotating Credential states", async () => {
+    const harness = await createHarness({ handler: (_request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end('{"data":{"data":[{"credential_id":"active-old","status":"ACTIVE","expires_at":"2020-01-01T00:00:00Z"},{"credential_id":"rotation-old","status":"ROTATING","overlap_ends_at":"2020-01-01T00:00:00Z"}]}}');
+    } });
+    active.push(harness);
+    const result = JSON.parse((await harness.run(["credentials", "list", "--agent-id", "agt-1"])).stdout);
+    expect(result.data).toEqual({ data: { data: [
+      { credential_id: "active-old", status: "ACTIVE", expires_at: "2020-01-01T00:00:00Z" },
+      { credential_id: "rotation-old", status: "ROTATING", overlap_ends_at: "2020-01-01T00:00:00Z" }
+    ] } });
+    expect(result.warnings).toEqual([
+      "GenAuth returned 1 Credential(s) as ACTIVE even though expires_at has passed; do not use them for Token or Provider calls",
+      "GenAuth returned 1 Credential(s) as ROTATING even though overlap_ends_at has passed; do not use the expired rotation credential"
+    ]);
+  });
+
   it.each(["json", "yaml"])("requires a second acknowledgement before showing a Credential secret in %s", async output => {
     const harness = await fixtureHarness();
     await expect(harness.run([
@@ -36,6 +53,18 @@ describe("runtime command journey", () => {
     const harness = await fixtureHarness();
     await expect(harness.run(["credentials", "create", "--agent-id", "agt-1", "--no-store-keychain"]))
       .rejects.toMatchObject({ code: "SECRET_DESTINATION_REQUIRED" });
+    expect(harness.requests).toHaveLength(0);
+  });
+
+  it("probes the secret store before creating a Credential delivery", async () => {
+    const harness = await fixtureHarness();
+    const originalSet = harness.secrets.set.bind(harness.secrets);
+    harness.secrets.set = async (reference, value) => {
+      if (reference.includes("/probe/")) throw new Error("keychain unavailable");
+      await originalSet(reference, value);
+    };
+    await expect(harness.run(["credentials", "create", "--agent-id", "agt-1"]))
+      .rejects.toMatchObject({ code: "SECRET_STORE_UNAVAILABLE" });
     expect(harness.requests).toHaveLength(0);
   });
 

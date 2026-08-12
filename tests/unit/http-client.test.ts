@@ -67,6 +67,37 @@ describe("API client", () => {
     expect(requests).toBe(3);
   });
 
+  it("maps GenAuth HTTP 200 business errors to a typed API error", async () => {
+    const endpoint = await listen((_request, response) => {
+      response.setHeader("X-Request-Id", "header-request");
+      response.end(JSON.stringify({
+        statusCode: 403,
+        code: "SILENT_AUTHORIZATION_NOT_ALLOWED",
+        message: "silent authorization is not allowed",
+        requestId: "body-request"
+      }));
+    });
+    const dispatcher = new Agent();
+    dispatchers.push(dispatcher);
+    const client = await ApiClient.create({ endpoint, dispatcher });
+    await expect(client.do({ method: "POST", path: "/business-error" })).rejects.toMatchObject({
+      name: "ApiError",
+      status: 403,
+      code: "SILENT_AUTHORIZATION_NOT_ALLOWED",
+      message: "silent authorization is not allowed",
+      requestId: "body-request"
+    });
+  });
+
+  it("keeps successful GenAuth HTTP 200 envelopes unchanged", async () => {
+    const body = { statusCode: 200, message: "", data: { id: "agent-1" }, requestId: "request-1" };
+    const endpoint = await listen((_request, response) => response.end(JSON.stringify(body)));
+    const dispatcher = new Agent();
+    dispatchers.push(dispatcher);
+    const client = await ApiClient.create({ endpoint, dispatcher });
+    await expect(client.do({ method: "GET", path: "/success" })).resolves.toMatchObject({ data: body, status: 200 });
+  });
+
   it("unwraps at most three API data envelopes", () => {
     expect(decodeData({ data: { data: { data: { id: "a" } } } })).toEqual({ id: "a" });
   });

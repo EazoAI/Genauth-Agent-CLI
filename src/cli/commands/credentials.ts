@@ -5,7 +5,7 @@ import { idempotencyHeaders } from "../../core/idempotency.js";
 import type { AppContext, GlobalOptions } from "../context.js";
 import { decodeResponseData } from "../context.js";
 import type { CommandRegistry, OptionContract } from "../manifest.js";
-import { confirmation, requiredText } from "./common.js";
+import { confirmation, requiredText, text } from "./common.js";
 
 const agentId: OptionContract = { flags: "--agent-id <id>", description: "Agent ID" };
 const secretOptions: OptionContract[] = [
@@ -24,7 +24,11 @@ export function registerCredentialCommands(parent: Command, registry: CommandReg
   }, async (options, command) => {
     const global = app.global(command);
     const current = await app.currentProfile(global);
-    await app.simple(global, { method: "GET", path: `${app.managementPrefix(current.profile)}/agents/${escape(requiredText(options.agentId, "agent-id"))}/credentials` }, "CredentialList");
+    const result = await app.call(global, {
+      method: "GET",
+      path: `${app.managementPrefix(current.profile)}/agents/${escape(requiredText(options.agentId, "agent-id"))}/credentials`
+    });
+    app.success(global, "CredentialList", result.data, result.requestId, credentialLifecycleWarnings(result.data));
   });
   registry.leaf(credentials, {
     path: "credentials create",
@@ -83,6 +87,7 @@ async function createCredential(app: AppContext, options: OptionValues, command:
   if (showSecret && global.output !== "table" && !options.allowSecretOutput) {
     throw new CliError({ code: "SECRET_OUTPUT_ACKNOWLEDGEMENT_REQUIRED", message: "--show-secret with machine-readable output also requires --allow-secret-output", exitCode: 2 });
   }
+  if (storeKeychain) await app.probeSecretStore();
   const humanSession = randomUUID();
   const base = `${app.managementPrefix(current.profile)}/agents/${escape(agentIdValue)}/credentials`;
   const created = await app.call(global, {
@@ -143,6 +148,36 @@ async function bestEffortRevoke(app: AppContext, global: GlobalOptions, agentIdV
 
 function serverResponse(message: string, requestId: string): CliError {
   return new CliError({ code: "INVALID_SERVER_RESPONSE", message, exitCode: 9, requestId });
+}
+
+function credentialLifecycleWarnings(value: unknown): string[] {
+  const decoded = decodeResponseData<unknown>(value);
+  const items = Array.isArray(decoded)
+    ? decoded
+    : isRecord(decoded) && Array.isArray(decoded.list)
+      ? decoded.list
+      : [];
+  const now = Date.now();
+  const expiredActive = items.filter(item => isElapsedCredential(item, "ACTIVE", "expires_at", now)).length;
+  const endedRotation = items.filter(item => isElapsedCredential(item, "ROTATING", "overlap_ends_at", now)).length;
+  const warnings: string[] = [];
+  if (expiredActive > 0) {
+    warnings.push(`GenAuth returned ${expiredActive} Credential(s) as ACTIVE even though expires_at has passed; do not use them for Token or Provider calls`);
+  }
+  if (endedRotation > 0) {
+    warnings.push(`GenAuth returned ${endedRotation} Credential(s) as ROTATING even though overlap_ends_at has passed; do not use the expired rotation credential`);
+  }
+  return warnings;
+}
+
+function isElapsedCredential(item: unknown, status: string, deadlineField: string, now: number): boolean {
+  if (!isRecord(item) || text(item.status).toUpperCase() !== status) return false;
+  const deadline = Date.parse(text(item[deadlineField]));
+  return Number.isFinite(deadline) && deadline <= now;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function escape(value: string): string { return encodeURIComponent(value); }

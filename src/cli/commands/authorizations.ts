@@ -66,11 +66,14 @@ export function registerAuthorizationCommands(parent: Command, registry: Command
   }, async (options, command) => {
     confirmation(options, "cancel authorization request");
     const global = app.global(command);
-    await app.simple(global, {
+    const requestId = requiredText(options.authorizationId, "authorization-id");
+    const result = await app.call(global, {
       method: "POST",
-      path: `${await authorizationPath(app, global, requiredText(options.authorizationId, "authorization-id"))}/cancel`,
+      path: `${await authorizationPath(app, global, requestId)}/cancel`,
       headers: idempotencyHeaders()
-    }, "AuthorizationRequest");
+    });
+    const cleaned = await cleanupAuthorization(app, requestId);
+    app.success(global, "AuthorizationRequest", result.data, result.requestId, cleaned ? [] : [localCleanupWarning("cancellation succeeded")]);
   });
   registry.leaf(authorizations, {
     path: "authorizations exchange",
@@ -91,7 +94,8 @@ function registerGrantCommands(parent: Command, registry: CommandRegistry, app: 
     const global = app.global(command);
     const current = await app.currentProfile(global);
     const path = current.profile.login_type === "user" ? "/api/v3/agent-identity/me/agent-user-grants" : "/api/v3/agent-identity/admin/agent-user-grants";
-    await app.simple(global, { method: "GET", path }, "UserGrantList");
+    const result = await app.call(global, { method: "GET", path });
+    app.success(global, "UserGrantList", result.data, result.requestId, expiredActiveGrantWarnings(result.data));
   });
   registry.leaf(grants, {
     path: "grants revoke",
@@ -140,6 +144,7 @@ async function createAuthorization(app: AppContext, options: OptionValues, comma
   let verifier = "";
   let redirectUri = text(options.redirectUri);
   if (mode === "EXPLICIT") {
+    await app.probeSecretStore();
     if (!redirectUri) {
       try { redirectUri = await reserveLoopbackRedirectUri(); }
       catch { throw new CliError({ code: "CALLBACK_UNAVAILABLE", message: "could not reserve a loopback authorization callback", exitCode: 2 }); }
@@ -220,17 +225,47 @@ async function waitAuthorization(app: AppContext, global: GlobalOptions, request
       }
       if (response) {
         const item = decodeResponseData<{ status?: string; poll_after?: number }>(response.data);
+        const status = text(item.status).toUpperCase();
         if (item.poll_after && item.poll_after > 0) delay = item.poll_after * 1_000;
-        if (item.status === "APPROVED") { app.success(global, "AuthorizationRequest", response.data, response.requestId); return; }
-        if (item.status === "CONSENTED") { await exchangeAuthorization(app, global, requestId, ""); return; }
-        if (item.status === "DENIED") throw new CliError({ code: "AUTHORIZATION_DENIED", message: "authorization was denied", exitCode: 4, requestId: response.requestId });
-        if (item.status === "EXPIRED" || item.status === "CANCELLED") throw new CliError({ code: `AUTHORIZATION_${item.status}`, message: `authorization reached ${item.status.toLowerCase()}`, exitCode: 5, requestId: response.requestId });
+        if (status === "APPROVED") {
+          const cleaned = await cleanupAuthorization(app, requestId);
+          app.success(global, "AuthorizationRequest", response.data, response.requestId, cleaned ? [] : [localCleanupWarning("authorization completed")]);
+          return;
+        }
+        if (status === "CONSENTED") { await exchangeAuthorization(app, global, requestId, ""); return; }
+        if (status === "DENIED") {
+          throw await terminalAuthorizationError(app, requestId, {
+            code: "AUTHORIZATION_DENIED",
+            message: "authorization was denied",
+            exitCode: 4,
+            requestId: response.requestId
+          });
+        }
+        if (status === "EXPIRED" || status === "CANCELLED") {
+          throw await terminalAuthorizationError(app, requestId, {
+            code: `AUTHORIZATION_${status}`,
+            message: `authorization reached ${status.toLowerCase()}`,
+            exitCode: 5,
+            requestId: response.requestId
+          });
+        }
+        if (status !== "PENDING") {
+          throw serverResponse(status === ""
+            ? "authorization response is missing status"
+            : `authorization response has unsupported status ${status}`, response.requestId);
+        }
       }
       const callbackRace = callback?.event.then(event => ({ type: "callback" as const, event }));
       const timer = sleep(delay, signal).then(() => ({ type: "timer" as const }));
       const next = callbackRace ? await Promise.race([callbackRace, timer]) : await timer;
       if (next.type === "callback") {
-        if (next.event.error) throw new CliError({ code: "AUTHORIZATION_DENIED", message: "authorization was denied", exitCode: 4 });
+        if (next.event.error) {
+          throw await terminalAuthorizationError(app, requestId, {
+            code: "AUTHORIZATION_DENIED",
+            message: "authorization was denied",
+            exitCode: 4
+          });
+        }
         await exchangeAuthorization(app, global, requestId, next.event.code);
         return;
       }
@@ -255,16 +290,16 @@ async function exchangeAuthorization(app: AppContext, global: GlobalOptions, req
     body: { code_verifier: verifier, ...(code ? { authorization_code: code } : {}) },
     headers: idempotencyHeaders()
   });
-  const warnings = await cleanupAuthorization(app, requestId);
-  app.success(global, "UserGrant", result.data, result.requestId, warnings);
+  const cleaned = await cleanupAuthorization(app, requestId);
+  app.success(global, "UserGrant", result.data, result.requestId, cleaned ? [] : [localCleanupWarning("authorization exchange succeeded")]);
 }
 
-async function cleanupAuthorization(app: AppContext, requestId: string): Promise<string[]> {
+async function cleanupAuthorization(app: AppContext, requestId: string): Promise<boolean> {
   let failed = false;
   for (const suffix of ["pkce", "code", "callback", "url"]) {
     await app.secrets.delete(secretRef(requestId, suffix)).catch(() => { failed = true; });
   }
-  return failed ? ["authorization exchange succeeded, but one or more one-time values could not be removed from the OS secret store"] : [];
+  return !failed;
 }
 
 async function compensateAuthorization(app: AppContext, global: GlobalOptions, requestId: string): Promise<void> {
@@ -279,6 +314,49 @@ async function authorizationPath(app: AppContext, global: GlobalOptions, request
 }
 
 function secretRef(requestId: string, suffix: string): string { return `keychain://genauth-agent/authorization/${requestId}/${suffix}`; }
+function localCleanupWarning(completedAction: string): string {
+  return `${completedAction}, but one or more one-time values could not be removed from the OS secret store`;
+}
+
+async function terminalAuthorizationError(
+  app: AppContext,
+  requestId: string,
+  options: { code: string; message: string; exitCode: number; requestId?: string }
+): Promise<CliError> {
+  const cleaned = await cleanupAuthorization(app, requestId);
+  return new CliError({
+    ...options,
+    ...(cleaned ? {} : {
+      remediation: {
+        authorization_id: requestId,
+        local_cleanup_required: true
+      }
+    })
+  });
+}
+
+function expiredActiveGrantWarnings(value: unknown): string[] {
+  const decoded = decodeResponseData<unknown>(value);
+  const items = Array.isArray(decoded)
+    ? decoded
+    : isRecord(decoded) && Array.isArray(decoded.list)
+      ? decoded.list
+      : [];
+  const now = Date.now();
+  const count = items
+    .filter(item => {
+      if (!isRecord(item) || text(item.status).toUpperCase() !== "ACTIVE") return false;
+      const expiry = Date.parse(text(item.expires_at));
+      return Number.isFinite(expiry) && expiry <= now;
+    }).length;
+  return count === 0
+    ? []
+    : [`GenAuth returned ${count} UserGrant(s) as ACTIVE even though expires_at has passed; do not use them for Token or Provider calls`];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 function escape(value: string): string { return encodeURIComponent(value); }
 function invalid(message: string): CliError { return new CliError({ code: "INVALID_ARGUMENT", message, exitCode: 2 }); }
 function serverResponse(message: string, requestId: string): CliError { return new CliError({ code: "INVALID_SERVER_RESPONSE", message, requestId, exitCode: 9 }); }

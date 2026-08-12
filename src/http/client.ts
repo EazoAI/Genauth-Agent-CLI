@@ -106,8 +106,13 @@ export class ApiClient {
         if (response.statusCode < 200 || response.statusCode >= 300) {
           throw decodeApiError(response.statusCode, textContent, responseRequestId, headerValue(response.headers["retry-after"]));
         }
+        const decoded = options.responseType === "buffer" ? content : decodeJson<T>(textContent);
+        if (options.responseType !== "buffer") {
+          const businessError = decodeBusinessError(decoded, responseRequestId, headerValue(response.headers["retry-after"]));
+          if (businessError) throw businessError;
+        }
         return {
-          data: (options.responseType === "buffer" ? content : decodeJson<T>(textContent)) as T,
+          data: decoded as T,
           requestId: responseRequestId,
           status: response.statusCode
         };
@@ -248,12 +253,34 @@ function decodeApiError(status: number, content: string, requestId: string, retr
   });
 }
 
+function decodeBusinessError(value: unknown, requestId: string, retryAfter: string): ApiError | undefined {
+  if (!isRecord(value)) return undefined;
+  const status = numberValue(value.statusCode);
+  if (status < 400) return undefined;
+  return new ApiError({
+    status,
+    code: stringValue(value.code) || stringValue(value.apiCode) || "HTTP_ERROR",
+    message: stringValue(value.message) || statusText(status),
+    requestId: stringValue(value.requestId) || stringValue(value.request_id) || requestId,
+    retryAfterMs: parseRetryAfter(retryAfter)
+  });
+}
+
 function statusText(status: number): string {
   return `HTTP ${status}`;
 }
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import http from "node:http";
 import { once } from "node:events";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -27,6 +28,12 @@ interface CliResult {
 }
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../..");
+const e2eSuffix = randomUUID().slice(0, 8);
+const ownerProfile = `e2e-owner-${e2eSuffix}`;
+const approverProfile = `e2e-approver-${e2eSuffix}`;
+const userProfile = `e2e-user-${e2eSuffix}`;
+const credentialId = `cred-${e2eSuffix}`;
+const authorizationId = `auth-${e2eSuffix}`;
 const secretStore = new KeychainSecretStore("darwin");
 const transcript: string[] = [];
 let testRoot = "";
@@ -55,14 +62,14 @@ beforeAll(async () => {
 afterAll(async () => {
   await fixture?.close();
   for (const reference of [
-    "keychain://genauth-agent/session/agent-owner",
-    "keychain://genauth-agent/session/agent-approver",
-    "keychain://genauth-agent/session/agent-user",
-    "keychain://genauth-agent/credential/cred-1",
-    "keychain://genauth-agent/authorization/auth-1/pkce",
-    "keychain://genauth-agent/authorization/auth-1/code",
-    "keychain://genauth-agent/authorization/auth-1/callback",
-    "keychain://genauth-agent/authorization/auth-1/url"
+    `keychain://genauth-agent/session/${ownerProfile}`,
+    `keychain://genauth-agent/session/${approverProfile}`,
+    `keychain://genauth-agent/session/${userProfile}`,
+    `keychain://genauth-agent/credential/${credentialId}`,
+    `keychain://genauth-agent/authorization/${authorizationId}/pkce`,
+    `keychain://genauth-agent/authorization/${authorizationId}/code`,
+    `keychain://genauth-agent/authorization/${authorizationId}/callback`,
+    `keychain://genauth-agent/authorization/${authorizationId}/url`
   ]) await secretStore.delete(reference).catch(() => undefined);
   if (testRoot !== "") await rm(testRoot, { recursive: true, force: true });
 });
@@ -75,14 +82,14 @@ describe("npm-installed complete Agent Identity user journey", () => {
       runtime: "node"
     });
 
-    await login("agent-owner", "owner-token");
-    await login("agent-approver", "approver-token");
-    await seedLegacyMemberProfile("agent-user", "user-token");
+    await login(ownerProfile, "owner-token");
+    await login(approverProfile, "approver-token");
+    await seedLegacyMemberProfile(userProfile, "user-token");
 
     for (const [profile, loginType, subject] of [
-      ["agent-owner", "tenant_admin", "owner-1"],
-      ["agent-approver", "tenant_admin", "approver-1"],
-      ["agent-user", "user", "user-1"]
+      [ownerProfile, "tenant_admin", "owner-1"],
+      [approverProfile, "tenant_admin", "approver-1"],
+      [userProfile, "user", "user-1"]
     ] as const) {
       const status = await invoke(profile, ["auth", "status"]);
       expect(status.envelope?.data).toMatchObject({
@@ -98,23 +105,23 @@ describe("npm-installed complete Agent Identity user journey", () => {
       expect(JSON.stringify(status.envelope)).toContain(subject);
     }
 
-    const pools = await invoke("agent-owner", ["auth", "list-user-pools"]);
+    const pools = await invoke(ownerProfile, ["auth", "list-user-pools"]);
     expect(pools.envelope?.data).toMatchObject({
       list: [{ id: "pool-1", name: "Development", domain: "dev", selected: true }]
     });
 
-    const doctor = await invoke("agent-owner", ["doctor"]);
+    const doctor = await invoke(ownerProfile, ["doctor"]);
     expect(doctor.envelope).toMatchObject({
       kind: "DoctorReport",
       data: { selected_user_pool_name: "Development", selected_user_pool_domain: "dev" }
     });
 
-    const permissions = await invoke("agent-owner", ["permissions", "list"]);
+    const permissions = await invoke(ownerProfile, ["permissions", "list"]);
     expect(unwrap(permissions.envelope?.data)).toMatchObject({ list: [{ id: "policy-orders-read" }] });
-    const permission = await invoke("agent-owner", ["permissions", "get", "--permission-id", "policy-orders-read"]);
+    const permission = await invoke(ownerProfile, ["permissions", "get", "--permission-id", "policy-orders-read"]);
     expect(unwrap(permission.envelope?.data)).toMatchObject({ id: "policy-orders-read", audience: "orders" });
 
-    const created = await invoke("agent-owner", [
+    const created = await invoke(ownerProfile, [
       "agents", "create",
       "--identifier", "orders-agent",
       "--display-name", "Orders Agent",
@@ -126,26 +133,26 @@ describe("npm-installed complete Agent Identity user journey", () => {
     expect(created.envelope?.kind).toBe("AgentWithCapabilityDraft");
     expect(fixture.state.capability).toBe("DRAFT");
 
-    await invoke("agent-owner", ["agents", "get", "--agent-id", "agt-1"]);
-    const submitted = await invoke("agent-owner", ["agents", "capability", "submit", "--agent-id", "agt-1", "--version", "1"]);
+    await invoke(ownerProfile, ["agents", "get", "--agent-id", "agt-1"]);
+    const submitted = await invoke(ownerProfile, ["agents", "capability", "submit", "--agent-id", "agt-1", "--version", "1"]);
     expect(unwrap(submitted.envelope?.data)).toMatchObject({ approval_id: "apr-cap-1" });
     expect(fixture.state.capability).toBe("PENDING");
 
-    const selfApproval = await invoke("agent-owner", [
+    const selfApproval = await invoke(ownerProfile, [
       "approvals", "approve", "--approval-id", "apr-cap-1", "--version", "1", "--reason", "self", "--yes"
     ], "", 4);
     expect(selfApproval.envelope?.error?.code).toBe("SELF_APPROVAL_FORBIDDEN");
     expect(fixture.state.capability).toBe("PENDING");
 
-    const frozen = await invoke("agent-approver", ["approvals", "get", "--approval-id", "apr-cap-1"]);
+    const frozen = await invoke(approverProfile, ["approvals", "get", "--approval-id", "apr-cap-1"]);
     expect(unwrap(frozen.envelope?.data)).toMatchObject({ requester_id: "owner-1", audience: "orders" });
-    await invoke("agent-approver", [
+    await invoke(approverProfile, [
       "approvals", "approve", "--approval-id", "apr-cap-1", "--version", "1", "--reason", "least privilege reviewed", "--yes"
     ]);
     expect(fixture.state.capability).toBe("ACTIVE");
 
-    await invoke("agent-owner", ["agents", "settings", "get", "--agent-id", "agt-1"]);
-    await invoke("agent-owner", [
+    await invoke(ownerProfile, ["agents", "settings", "get", "--agent-id", "agt-1"]);
+    await invoke(ownerProfile, [
       "agents", "settings", "update", "--agent-id", "agt-1",
       "--authorization-mode", "silent-if-allowed",
       "--token-ttl", "5m",
@@ -155,27 +162,27 @@ describe("npm-installed complete Agent Identity user journey", () => {
       "--redirect-uri", "http://127.0.0.1:39001/callback",
       "--version", "0"
     ]);
-    await invoke("agent-owner", ["agents", "settings", "submit", "--agent-id", "agt-1"]);
+    await invoke(ownerProfile, ["agents", "settings", "submit", "--agent-id", "agt-1"]);
     expect(fixture.state.settings).toBe("PENDING");
-    await invoke("agent-approver", ["approvals", "get", "--settings", "--approval-id", "apr-settings-1"]);
-    await invoke("agent-approver", [
+    await invoke(approverProfile, ["approvals", "get", "--settings", "--approval-id", "apr-settings-1"]);
+    await invoke(approverProfile, [
       "approvals", "approve", "--settings", "--approval-id", "apr-settings-1", "--version", "1", "--reason", "settings reviewed", "--yes"
     ]);
     expect(fixture.state.settings).toBe("ACTIVE");
 
-    const blocked = await invoke("agent-owner", ["agents", "readiness", "--agent-id", "agt-1"]);
+    const blocked = await invoke(ownerProfile, ["agents", "readiness", "--agent-id", "agt-1"]);
     expect(unwrap(blocked.envelope?.data)).toMatchObject({ blockers: ["credential_required"] });
-    const credential = await invoke("agent-owner", ["credentials", "create", "--agent-id", "agt-1"]);
+    const credential = await invoke(ownerProfile, ["credentials", "create", "--agent-id", "agt-1"]);
     expect(credential.envelope?.data).toMatchObject({
-      credential_id: "cred-1",
-      secret_ref: "keychain://genauth-agent/credential/cred-1"
+      credential_id: credentialId,
+      secret_ref: `keychain://genauth-agent/credential/${credentialId}`
     });
     expect(JSON.stringify(credential.envelope)).not.toContain("credential-secret");
-    await invoke("agent-owner", ["credentials", "list", "--agent-id", "agt-1"]);
-    const ready = await invoke("agent-owner", ["agents", "readiness", "--agent-id", "agt-1"]);
+    await invoke(ownerProfile, ["credentials", "list", "--agent-id", "agt-1"]);
+    const ready = await invoke(ownerProfile, ["agents", "readiness", "--agent-id", "agt-1"]);
     expect(unwrap(ready.envelope?.data)).toMatchObject({ ready: true, blockers: [] });
 
-    const authorization = await invoke("agent-owner", [
+    const authorization = await invoke(ownerProfile, [
       "authorizations", "create",
       "--agent-id", "agt-1",
       "--user-id", "user-1",
@@ -184,25 +191,25 @@ describe("npm-installed complete Agent Identity user journey", () => {
       "--mode", "explicit",
       "--redirect-uri", "http://127.0.0.1:39001/callback"
     ]);
-    expect(authorization.envelope?.data.authorization_url).toContain("request_id=auth-1");
+    expect(authorization.envelope?.data.authorization_url).toContain(`request_id=${authorizationId}`);
     expect(authorization.envelope?.data.authorization_url).toContain("user_pool_id=pool-1");
     expect(JSON.stringify(authorization.envelope)).not.toContain("pkce-verifier");
 
-    const consent = await invoke("agent-user", ["authorizations", "consent", "--authorization-id", "auth-1"]);
+    const consent = await invoke(userProfile, ["authorizations", "consent", "--authorization-id", authorizationId]);
     expect(consent.envelope?.data).toHaveProperty("code_ref");
     expect(JSON.stringify(consent.envelope)).not.toContain("authorization-code");
-    const completed = await invoke("agent-owner", ["--timeout", "5s", "authorizations", "wait", "--authorization-id", "auth-1"]);
+    const completed = await invoke(ownerProfile, ["--timeout", "5s", "authorizations", "wait", "--authorization-id", authorizationId]);
     expect(unwrap(completed.envelope?.data)).toMatchObject({ grant_id: "grant-1", status: "ACTIVE" });
     expect(fixture.state.grant).toBe("ACTIVE");
 
-    const grants = await invoke("agent-owner", ["grants", "list"]);
+    const grants = await invoke(ownerProfile, ["grants", "list"]);
     expect(unwrap(grants.envelope?.data)).toMatchObject({
       list: [{ id: "grant-1", subject_id: "user-1", audience: "orders", permission_ids: ["policy-orders-read"], status: "ACTIVE" }]
     });
 
-    const provider = await invoke("agent-owner", [
+    const provider = await invoke(ownerProfile, [
       "providers", "call",
-      "--credential", "keychain://genauth-agent/credential/cred-1",
+      "--credential", `keychain://genauth-agent/credential/${credentialId}`,
       "--grant-id", "grant-1",
       "--audience", "orders",
       "--provider", "orders-provider",
@@ -212,17 +219,17 @@ describe("npm-installed complete Agent Identity user journey", () => {
     expect(provider.envelope?.data).toEqual({ order_id: "42", decision: "allowed" });
     expect(fixture.state.providerCalls).toBe(1);
 
-    const audit = await invoke("agent-owner", ["audit", "list", "--agent-id", "agt-1"]);
+    const audit = await invoke(ownerProfile, ["audit", "list", "--agent-id", "agt-1"]);
     expect(unwrap(audit.envelope?.data).list).toContain("PROVIDER_CALLED");
-    await invoke("agent-owner", ["tokens", "list", "--agent-id", "agt-1"]);
-    await invoke("agent-owner", ["tokens", "revoke", "--jti", "jti-1", "--reason", "journey complete", "--yes"]);
-    await invoke("agent-owner", ["grants", "revoke", "--grant-id", "grant-1", "--version", "1", "--reason", "journey complete", "--yes"]);
-    await invoke("agent-owner", ["credentials", "revoke", "--agent-id", "agt-1", "--credential-id", "cred-1", "--yes"]);
+    await invoke(ownerProfile, ["tokens", "list", "--agent-id", "agt-1"]);
+    await invoke(ownerProfile, ["tokens", "revoke", "--jti", "jti-1", "--reason", "journey complete", "--yes"]);
+    await invoke(ownerProfile, ["grants", "revoke", "--grant-id", "grant-1", "--version", "1", "--reason", "journey complete", "--yes"]);
+    await invoke(ownerProfile, ["credentials", "revoke", "--agent-id", "agt-1", "--credential-id", credentialId, "--yes"]);
     expect(fixture.state).toMatchObject({ token: "REVOKED", grant: "REVOKED", credential: "REVOKED" });
 
-    const revoked = await invoke("agent-owner", [
+    const revoked = await invoke(ownerProfile, [
       "providers", "call",
-      "--credential", "keychain://genauth-agent/credential/cred-1",
+      "--credential", `keychain://genauth-agent/credential/${credentialId}`,
       "--grant-id", "grant-1",
       "--audience", "orders",
       "--provider", "orders-provider",
@@ -230,7 +237,7 @@ describe("npm-installed complete Agent Identity user journey", () => {
     ], "", 3);
     expect(revoked.envelope?.error?.code).toBe("CREDENTIAL_NOT_FOUND");
 
-    for (const profile of ["agent-user", "agent-approver", "agent-owner"]) await invoke(profile, ["auth", "logout"]);
+    for (const profile of [userProfile, approverProfile, ownerProfile]) await invoke(profile, ["auth", "logout"]);
 
     const combined = transcript.join("\n");
     for (const secret of ["owner-token", "approver-token", "user-token", "credential-secret", "runtime-jwt", "authorization-code"]) {
@@ -385,28 +392,28 @@ function handleJourneyRequest(state: JourneyState, request: http.IncomingMessage
     const blockers = state.credential === "ACTIVE" ? [] : ["credential_required"];
     return send(response, 200, { data: { ready: blockers.length === 0 && state.capability === "ACTIVE" && state.settings === "ACTIVE", blockers } });
   }
-  if (pathname.endsWith("/agents/agt-1/credentials") && method === "POST") return send(response, 200, { data: { credential: { credential_id: "cred-1", expires_at: "2030-01-01T00:00:00Z" }, delivery: { delivery_id: "delivery-1", delivery_code: "delivery-code" } } });
+  if (pathname.endsWith("/agents/agt-1/credentials") && method === "POST") return send(response, 200, { data: { credential: { credential_id: credentialId, expires_at: "2030-01-01T00:00:00Z" }, delivery: { delivery_id: "delivery-1", delivery_code: "delivery-code" } } });
   if (pathname.endsWith("/credential-deliveries/delivery-1/consume") && method === "POST") {
     state.credential = "ACTIVE";
     state.auditEvents.push("CREDENTIAL_CREATED");
-    return send(response, 200, { data: { credential_id: "cred-1", client_secret: "credential-secret" } });
+    return send(response, 200, { data: { credential_id: credentialId, client_secret: "credential-secret" } });
   }
-  if (pathname.endsWith("/agents/agt-1/credentials") && method === "GET") return send(response, 200, { data: { list: [{ id: "cred-1", status: state.credential, expires_at: "2030-01-01T00:00:00Z" }] } });
-  if (pathname.endsWith("/agents/agt-1/credentials/cred-1/revoke") && method === "POST") {
+  if (pathname.endsWith("/agents/agt-1/credentials") && method === "GET") return send(response, 200, { data: { list: [{ id: credentialId, status: state.credential, expires_at: "2030-01-01T00:00:00Z" }] } });
+  if (pathname.endsWith(`/agents/agt-1/credentials/${credentialId}/revoke`) && method === "POST") {
     state.credential = "REVOKED";
-    return send(response, 200, { data: { id: "cred-1", status: "REVOKED" } });
+    return send(response, 200, { data: { id: credentialId, status: "REVOKED" } });
   }
   if (pathname.endsWith("/agents/agt-1/authorization-requests") && method === "POST") {
     state.authorization = "PENDING";
-    return send(response, 200, { data: { request: { request_id: "auth-1", status: "PENDING" } } });
+    return send(response, 200, { data: { request: { request_id: authorizationId, status: "PENDING" } } });
   }
-  if (pathname === "/api/v3/agent-identity/me/authorization-requests/auth-1/consent" && method === "POST") {
+  if (pathname === `/api/v3/agent-identity/me/authorization-requests/${authorizationId}/consent` && method === "POST") {
     if (bearer !== "user-token") return sendError(response, 403, "USER_REQUIRED", "target user required");
     state.authorization = "CONSENTED";
     return send(response, 200, { data: { authorization_code: "authorization-code", redirect_uri: "http://127.0.0.1:39001/callback" } });
   }
-  if (pathname === "/api/v3/agent-identity/admin/authorization-requests/auth-1" && method === "GET") return send(response, 200, { data: { request_id: "auth-1", status: state.authorization } });
-  if (pathname === "/api/v3/agent-identity/admin/authorization-requests/auth-1/exchange" && method === "POST") {
+  if (pathname === `/api/v3/agent-identity/admin/authorization-requests/${authorizationId}` && method === "GET") return send(response, 200, { data: { request_id: authorizationId, status: state.authorization } });
+  if (pathname === `/api/v3/agent-identity/admin/authorization-requests/${authorizationId}/exchange` && method === "POST") {
     if (!json.code_verifier) return sendError(response, 422, "PKCE_REQUIRED", "PKCE verifier required");
     state.authorization = "APPROVED";
     state.grant = "ACTIVE";
@@ -419,7 +426,7 @@ function handleJourneyRequest(state: JourneyState, request: http.IncomingMessage
     return send(response, 200, { data: { id: "grant-1", status: "REVOKED", version: 2 } });
   }
   if (pathname === "/api/v3/agent-runtime/token" && method === "POST") {
-    if (String(request.headers.authorization ?? "") !== `Basic ${Buffer.from("cred-1:credential-secret").toString("base64")}` || state.credential !== "ACTIVE" || state.grant !== "ACTIVE") return sendError(response, 403, "RUNTIME_ACCESS_DENIED", "runtime access denied");
+    if (String(request.headers.authorization ?? "") !== `Basic ${Buffer.from(`${credentialId}:credential-secret`).toString("base64")}` || state.credential !== "ACTIVE" || state.grant !== "ACTIVE") return sendError(response, 403, "RUNTIME_ACCESS_DENIED", "runtime access denied");
     state.token = "ACTIVE";
     state.auditEvents.push("TOKEN_ISSUED");
     return send(response, 200, { data: { access_token: "runtime-jwt", jti: "jti-1", expires_in: 300 } });
